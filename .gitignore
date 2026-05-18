@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+.next/
+
+# 环境
+.env
+.env.local
+.env.*.local
+
+# 系统
+.DS_Store
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# 测试
+coverage/
