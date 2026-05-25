@@ -1,6 +1,6 @@
 {
   "database": "changfeng_user_center",
-  "version": 1,
+  "version": 2,
   "tables": [
     {
       "name": "User",
@@ -71,6 +71,23 @@
         { "name": "updatedAt", "type": "timestamptz", "required": true }
       ],
       "primaryKey": ["id"]
+    },
+    {
+      "name": "SocialAccount",
+      "columns": [
+        { "name": "id", "type": "text", "required": true },
+        { "name": "userId", "type": "text", "required": true },
+        { "name": "provider", "type": "text", "required": true },
+        { "name": "providerOpenid", "type": "text", "required": true },
+        { "name": "accessToken", "type": "text" },
+        { "name": "refreshToken", "type": "text" },
+        { "name": "tokenExpiresAt", "type": "timestamptz" },
+        { "name": "profileData", "type": "jsonb", "required": true, "default": "'{}'" },
+        { "name": "createdAt", "type": "timestamptz", "required": true, "default": "now()" },
+        { "name": "updatedAt", "type": "timestamptz", "required": true }
+      ],
+      "primaryKey": ["id"],
+      "uniqueGroups": [["provider", "providerOpenid"]]
     }
   ]
 }

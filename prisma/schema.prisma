@@ -21,6 +21,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   businessAccount BusinessAccount?
+  socialAccounts SocialAccount[]
 }
 
 model Session {
@@ -73,4 +74,22 @@ model BusinessAccount {
   status      String   @default("active")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ============ 社交账户表 ============
+
+model SocialAccount {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       String
+  providerOpenid String
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+  profileData    Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([provider, providerOpenid])
 }

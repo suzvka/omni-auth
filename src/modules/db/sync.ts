@@ -17,6 +17,7 @@ export interface TableDecl {
   name: string;
   columns: ColumnDecl[];
   primaryKey?: string[];
+  uniqueGroups?: string[][];
 }
 
 export interface SchemaDeclaration {
@@ -95,6 +96,15 @@ function buildUniqueIndexSQL(tableName: string, colName: string): string {
   return `CREATE UNIQUE INDEX IF NOT EXISTS "${idxName}" ON "${tableName}" ("${colName}");`;
 }
 
+function buildCompositeUniqueIndexSQL(
+  tableName: string,
+  columns: string[]
+): string {
+  const idxName = `${tableName}_${columns.join("_")}_key`;
+  const colList = columns.map((c) => `"${c}"`).join(", ");
+  return `CREATE UNIQUE INDEX IF NOT EXISTS "${idxName}" ON "${tableName}" (${colList});`;
+}
+
 // ============================================================
 // 自省：查询 information_schema
 // ============================================================
@@ -128,20 +138,41 @@ async function fetchExistingColumns(
 async function fetchExistingUniqueIndexes(
   client: PrismaClient,
   tableName: string
-): Promise<Set<string>> {
+): Promise<{ singleCols: Set<string>; compositeGroups: Set<string> }> {
   // 查询该表上所有唯一约束涉及的列
   const rows = (await client.$queryRawUnsafe(
-    `SELECT kcu.column_name, tc.constraint_name
+    `SELECT kcu.column_name, tc.constraint_name, tc.constraint_type
      FROM information_schema.table_constraints tc
      JOIN information_schema.key_column_usage kcu
        ON tc.constraint_name = kcu.constraint_name
        AND tc.table_schema = kcu.table_schema
      WHERE tc.constraint_type IN ('UNIQUE', 'PRIMARY KEY')
        AND tc.table_schema = 'public'
-       AND tc.table_name = $1`,
+       AND tc.table_name = $1
+     ORDER BY tc.constraint_name, kcu.ordinal_position`,
     tableName
-  )) as { column_name: string; constraint_name: string }[];
-  return new Set(rows.map((r: { column_name: string }) => r.column_name));
+  )) as { column_name: string; constraint_name: string; constraint_type: string }[];
+
+  // 按 constraint_name 聚合列，区分 single 和 composite
+  const groups = new Map<string, string[]>();
+  for (const row of rows) {
+    if (row.constraint_type === "PRIMARY KEY") continue;
+    if (!groups.has(row.constraint_name)) {
+      groups.set(row.constraint_name, []);
+    }
+    groups.get(row.constraint_name)!.push(row.column_name);
+  }
+
+  const singleCols = new Set<string>();
+  const compositeGroups = new Set<string>();
+  for (const cols of groups.values()) {
+    if (cols.length === 1) {
+      singleCols.add(cols[0]);
+    } else {
+      compositeGroups.add(cols.join(","));
+    }
+  }
+  return { singleCols, compositeGroups };
 }
 
 // ============================================================
@@ -150,12 +181,10 @@ async function fetchExistingUniqueIndexes(
 
 function buildBootstrapUrl(dbUrl: string): string {
   // 格式: postgresql://user:password@host:port/dbname?params
-  const lastSlash = dbUrl.lastIndexOf("/");
-  const base = dbUrl.slice(0, lastSlash);
-  const afterDb = dbUrl.slice(lastSlash + 1);
-  const queryStart = afterDb.indexOf("?");
-  const query = queryStart >= 0 ? afterDb.slice(queryStart) : "";
-  return `${base}/postgres${query}`;
+  // 如果缺少 dbname，补上 /postgres 作为 bootstrap 库
+  const url = new URL(dbUrl);
+  url.pathname = "/postgres";
+  return url.toString();
 }
 
 // ============================================================
@@ -273,10 +302,31 @@ export async function ensureDatabaseSchema(
     } else {
       // --- 表存在：逐列检查 ---
       const existingCols = await fetchExistingColumns(client, table.name);
-      const existingUniqueCols = await fetchExistingUniqueIndexes(
-        client,
-        table.name
-      );
+      const { singleCols: existingUniqueCols, compositeGroups: existingCompositeGroups } =
+        await fetchExistingUniqueIndexes(client, table.name);
+
+      // 复合唯一索引检查
+      if (table.uniqueGroups) {
+        for (const group of table.uniqueGroups) {
+          const groupKey = group.join(",");
+          if (!existingCompositeGroups.has(groupKey)) {
+            const sql = buildCompositeUniqueIndexSQL(table.name, group);
+            const idxName = `${table.name}_${group.join("_")}_key`;
+            console.log(
+              `[DB Sync] Composite unique index "${idxName}" missing — creating.`
+            );
+            if (autoSync) {
+              await client.$queryRawUnsafe(sql);
+              report.uniqueIndexesCreated.push(idxName);
+              console.log(`[DB Sync] Created composite unique index "${idxName}".`);
+            } else {
+              console.log(
+                `[DB Sync] [DRY-RUN] Would create composite unique index "${idxName}".`
+              );
+            }
+          }
+        }
+      }
 
       for (const col of table.columns) {
         const existing = existingCols.get(col.name);
