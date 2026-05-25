@@ -1,0 +1,4 @@
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
+storeDir: D:\.pnpm-store\v10
