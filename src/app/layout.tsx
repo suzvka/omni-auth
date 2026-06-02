@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { initAuthModule } from "@/modules/auth/init";
 
-// 确保模块级初始化（Next.js 服务端组件在首次渲染时执行）
-initAuthModule();
+// SDK 初始化由 @/lib/auth.ts 在首次导入时自动完成
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

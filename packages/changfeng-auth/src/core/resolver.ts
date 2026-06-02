@@ -1,4 +1,8 @@
-import type { Account } from "./types";
+// ============================================================
+// Account Resolver — 业务账户解析器
+// ============================================================
+
+import type { Account } from "../types";
 
 export type AccountResolver = {
   findByAuthUserId(authUserId: string): Promise<Account | null>;

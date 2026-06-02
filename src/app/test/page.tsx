@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useSession } from "@/modules/auth/client";
+import { createAuthClient } from "better-auth/react";
 import { getProfile } from "@/app/actions/profile";
+
+const { useSession } = createAuthClient();
 
 // ============ 类型 ============
 

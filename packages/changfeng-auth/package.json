@@ -1,0 +1,56 @@
+{
+  "name": "changfeng-auth",
+  "version": "0.2.0",
+  "description": "Changfeng authentication SDK — framework-agnostic, built on Better Auth",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./adapters/prisma": {
+      "types": "./dist/adapters/prisma.d.ts",
+      "import": "./dist/adapters/prisma.js",
+      "require": "./dist/adapters/prisma.cjs"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
+      "require": "./dist/client.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "prisma/schema.prisma"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "better-auth": "^1"
+  },
+  "dependencies": {
+    "better-auth": "^1"
+  },
+  "devDependencies": {
+    "@prisma/client": "^6",
+    "tsup": "^8",
+    "typescript": "^5",
+    "vitest": "^4.1.7"
+  },
+  "keywords": [
+    "auth",
+    "authentication",
+    "oauth",
+    "better-auth"
+  ],
+  "license": "MIT"
+}

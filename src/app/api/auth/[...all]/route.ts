@@ -1,4 +1,4 @@
-import { auth } from "@/modules/auth/config";
-import { toNextJsHandler } from "better-auth/next-js";
+import { auth } from "@/lib/auth";
+import { createRouteHandlers } from "changfeng-auth-nextjs";
 
-export const { GET, POST } = toNextJsHandler(auth);
+export const { GET, POST } = createRouteHandlers(auth);

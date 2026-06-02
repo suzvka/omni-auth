@@ -1,0 +1,36 @@
+{
+  "name": "changfeng-auth-nextjs",
+  "version": "0.2.0",
+  "description": "Next.js integration layer for changfeng-auth SDK",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "changfeng-auth": "workspace:*",
+    "next": ">=16"
+  },
+  "dependencies": {
+    "changfeng-auth": "workspace:*"
+  },
+  "devDependencies": {
+    "next": "16.2.6",
+    "tsup": "^8",
+    "typescript": "^5"
+  },
+  "keywords": ["auth", "nextjs", "authentication"],
+  "license": "MIT"
+}

@@ -1,8 +1,8 @@
 "use server";
 
-import { requireAuthContext } from "@/modules/auth";
+import { routeHelpers } from "@/lib/auth";
 
 export async function getProfile() {
-  const { account } = await requireAuthContext();
-  return { displayName: account?.displayName ?? "未关联账户" };
+  const ctx = await routeHelpers.requireContext();
+  return { displayName: ctx.account?.displayName ?? "未关联账户" };
 }
