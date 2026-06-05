@@ -128,16 +128,13 @@ async function main() {
   console.log("  4. 在 lib/auth.ts 中初始化 SDK：");
   console.log("     import { PrismaClient } from '@prisma/client';");
   console.log('     import { PrismaAdapter } from "changfeng-auth/adapters/prisma";');
-  console.log('     import { prismaAdapter } from "@better-auth/prisma-adapter";');
   console.log('     import { createQuickAuth } from "changfeng-auth-nextjs";');
   console.log("");
   console.log("     const prisma = new PrismaClient();");
   console.log("");
   console.log("     export const auth = createQuickAuth({");
-  console.log("       // SDK 业务表适配器（BusinessAccount / SocialAccount）");
-  console.log("       database: PrismaAdapter({ prisma }),");
-  console.log("       // Better Auth 原生适配器（User / Session / Account 等认证表）");
-  console.log("       betterAuthDatabase: prismaAdapter(prisma, { provider: \"${provider}\" }),");
+  console.log("       // provider 让 SDK 自动构造 better-auth 原生适配器");
+  console.log(`       database: PrismaAdapter({ prisma, provider: "${provider}" }),`);
   console.log("       secret: process.env.BETTER_AUTH_SECRET!,");
   console.log("       baseUrl: process.env.BETTER_AUTH_URL!,");
   console.log("     });");

@@ -1,6 +1,6 @@
 {
   "name": "changfeng-auth-nextjs",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Next.js integration layer for changfeng-auth SDK",
   "author": "Changfeng Team",
   "license": "MIT",
@@ -24,7 +24,9 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "prepublishOnly": "pnpm build",
@@ -32,16 +34,21 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "changfeng-auth": "^0.3.2",
+    "changfeng-auth": "^0.3.3",
     "next": ">=16"
   },
   "dependencies": {
-    "changfeng-auth": "^0.3.2"
+    "@better-auth/prisma-adapter": "^1.6.11",
+    "changfeng-auth": "^0.3.3"
   },
   "devDependencies": {
     "next": "16.2.6",
     "tsup": "^8",
     "typescript": "^5"
   },
-  "keywords": ["auth", "nextjs", "authentication"]
+  "keywords": [
+    "auth",
+    "nextjs",
+    "authentication"
+  ]
 }

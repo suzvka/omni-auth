@@ -9,6 +9,9 @@ import {
 } from "changfeng-auth";
 import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver, CaptchaAdapter } from "changfeng-auth";
 import type { BetterAuthOptions } from "better-auth";
+import { prismaAdapter } from "@better-auth/prisma-adapter";
+import type { PrismaConfig } from "@better-auth/prisma-adapter";
+import type { PrismaClient } from "@prisma/client";
 
 // ============================================================
 // 统一导出：所有常用类型只需从 changfeng-auth-nextjs 导入
@@ -141,29 +144,35 @@ export function oauthCookieResponse(
 // createQuickAuth — 一站式初始化工厂
 // ============================================================
 
+/** PrismaAdapter 暴露的元信息（运行时检测用，无需 import） */
+interface PrismaAdapterMeta {
+  _prisma: unknown;
+  _provider?: string;
+}
+
+function getPrismaMeta(
+  adapter: DatabaseAdapter
+): PrismaAdapterMeta | null {
+  const a = adapter as unknown as Record<string, unknown>;
+  if (typeof a !== "object" || a === null || !("_prisma" in a)) return null;
+  return a as unknown as PrismaAdapterMeta;
+}
+
 export interface QuickAuthConfig {
   /** 数据库适配器（必填，通过 PrismaAdapter({ prisma }) 创建） */
   database: DatabaseAdapter;
   /**
-   * Better Auth 原生数据库适配器（可选）。
+   * Better Auth 原生数据库适配器（可选，高级用法）。
    *
-   * 由于 changfeng-auth 的自定义 DatabaseAdapter 与 Better Auth 原生
-   * DBAdapter 接口不同，需要通过此字段注入 Better Auth 兼容的适配器。
+   * 【推荐】使用 PrismaAdapter({ prisma, provider: "postgresql" })
+   * 搭配 database 字段，SDK 会自动内部构造 better-auth 适配器，
+   * 无需设置此字段。
    *
-   * 不提供则回退使用 database（通过类型断言），但推荐显式注入以确保
-   * 运行时兼容性。使用方式：
+   * 仅在以下场景手动设置：
+   * - 使用非 Prisma 的 DatabaseAdapter（如 DrizzleAdapter）
+   * - 需要接管 better-auth 适配器的全部配置
    *
-   * ```ts
-   * import { prismaAdapter } from "@better-auth/prisma-adapter";
-   *
-   * createQuickAuth({
-   *   database: PrismaAdapter({ prisma }),
-   *   betterAuthDatabase: prismaAdapter(prisma, { provider: "sqlite" }),
-   *   // ...
-   * });
-   * ```
-   *
-   * @see overrides — 如果同时设置了 overrides.database，后者优先级更高
+   * @see database — 主适配器配置
    */
   betterAuthDatabase?: BetterAuthOptions["database"];
   /** Better Auth 密钥 */
@@ -198,19 +207,17 @@ export interface QuickAuthConfig {
  * 自动处理：数据库适配器连接、BusinessAccount 自动创建、
  * 账户解析器注册、角色解析器注册。
  *
- * 注意：changfeng-auth 的 DatabaseAdapter 与 Better Auth 原生
- * DBAdapter 接口不同。推荐通过 betterAuthDatabase 显式注入
- * Better Auth 兼容的适配器（如 @better-auth/prisma-adapter）。
+ * 当 database 使用 PrismaAdapter 且提供 provider 参数时，
+ * SDK 会自动内部构造 better-auth 原生适配器，无需手动设置
+ * betterAuthDatabase。
  *
  * @example
  * ```ts
  * import { PrismaAdapter } from "changfeng-auth/adapters/prisma";
- * import { prismaAdapter } from "@better-auth/prisma-adapter";
  * import { createQuickAuth } from "changfeng-auth-nextjs";
  *
  * export const auth = createQuickAuth({
- *   database: PrismaAdapter({ prisma }),
- *   betterAuthDatabase: prismaAdapter(prisma, { provider: "postgresql" }),
+ *   database: PrismaAdapter({ prisma, provider: "postgresql" }),
  *   secret: process.env.BETTER_AUTH_SECRET!,
  *   baseUrl: process.env.BETTER_AUTH_URL!,
  * });
@@ -270,9 +277,23 @@ export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
   }
 
   // 设置 better-auth 兼容的数据库适配器
-  // priority: overrides.database > betterAuthDatabase > database (with as never)
+  // Priority:
+  //   1. overrides.database — 用户显式设置，最高优先级
+  //   2. betterAuthDatabase — 用户通过快捷字段设置
+  //   3. PrismaAdapter 自动检测 — 如果 database 是 PrismaAdapter 且含 provider
+  //   4. database 回退 — 其他类型的 DatabaseAdapter 直接透传
   if (!mergedOverrides.database) {
-    mergedOverrides.database = config.betterAuthDatabase ?? (config.database as never);
+    if (config.betterAuthDatabase) {
+      mergedOverrides.database = config.betterAuthDatabase;
+    } else if (getPrismaMeta(config.database)?._provider) {
+      const meta = getPrismaMeta(config.database)!;
+      // 自动构造 better-auth 原生适配器，零额外配置
+      mergedOverrides.database = prismaAdapter(meta._prisma as PrismaClient, {
+        provider: meta._provider as PrismaConfig["provider"],
+      });
+    } else {
+      mergedOverrides.database = config.database as never;
+    }
   }
 
   return createAuth({
