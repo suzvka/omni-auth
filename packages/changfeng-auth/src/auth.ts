@@ -7,9 +7,10 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import type { DatabaseAdapter } from "./adapters/database";
 import type { EmailAdapter } from "./adapters/email";
+import type { SmsAdapter } from "./adapters/sms";
 import type { CaptchaAdapter } from "./adapters/captcha";
 import type { RequestContext } from "./adapters/request";
-import type { AuthContext, Account, SocialAccountBrief } from "./types";
+import type { AuthContext, Account, SocialAccountBrief, UserChannel } from "./types";
 import type { AccountResolver } from "./core/resolver";
 import { getAccountResolver, setAccountResolver } from "./core/resolver";
 import { setRoleResolver } from "./core/roles";
@@ -29,6 +30,11 @@ import { createAccountDeletion } from "./core/account";
 import { createSessionManagement } from "./core/session";
 import { resolveRoles, type RoleResolver, hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
 import { publishAuditEvent } from "./core/audit";
+import {
+  phoneToSyntheticEmail,
+  isSyntheticEmail,
+  isChannelProvider,
+} from "./core/channel-mapping";
 
 // ----------------------------------------------------------
 // BetterAuth 实例类型
@@ -65,6 +71,8 @@ export interface ChangfengAuthConfig {
   overrides?: Partial<BetterAuthOptions>;
   /** 验证码适配器（不提供则不启用验证码校验） */
   captcha?: CaptchaAdapter;
+  /** 短信适配器（不提供则手机号注册/登录不可用） */
+  sms?: SmsAdapter;
   /** 生命周期钩子 */
   hooks?: LifecycleHooks;
 }
@@ -79,6 +87,14 @@ export interface SignUpInput {
   name: string;
   /** 验证码凭证（如配置了 CaptchaAdapter 则为必填） */
   captchaToken?: string;
+  /**
+   * 通道记录（可选）。
+   * 提供则直接写入 SocialAccount；未提供则自动从 email 推断。
+   */
+  channel?: {
+    provider: string;
+    identifier: string;
+  };
 }
 
 export interface SignUpResult {
@@ -94,6 +110,26 @@ export interface SignInInput {
 }
 
 export interface SignInResult {
+  userId: string;
+  token: string | null;
+}
+
+export interface SignUpWithPhoneInput {
+  phone: string;
+  code: string;
+  name?: string;
+  /** 验证码凭证（如配置了 CaptchaAdapter 则为必填） */
+  captchaToken?: string;
+}
+
+export interface SignInWithPhoneInput {
+  phone: string;
+  code: string;
+  /** 验证码凭证（如配置了 CaptchaAdapter 则为必填） */
+  captchaToken?: string;
+}
+
+export interface PhoneAuthResult {
   userId: string;
   token: string | null;
 }
@@ -312,6 +348,24 @@ export class ChangfengAuth {
     try {
       const result = await this._signUpEmail(input.email, input.password, input.name);
 
+      // 写入 SocialAccount 通道记录
+      const channelProvider = input.channel?.provider ?? (isSyntheticEmail(input.email) ? null : "email");
+      const channelId = input.channel?.identifier ?? (isSyntheticEmail(input.email) ? null : input.email);
+
+      if (channelProvider && channelId) {
+        try {
+          await this._socialService.bindToUser(result.user.id, {
+            provider: channelProvider,
+            providerOpenid: channelId,
+          });
+        } catch (channelErr: unknown) {
+          console.warn(
+            `[signUp] 通道记录写入失败 (userId=${result.user.id}, provider=${channelProvider}):`,
+            channelErr instanceof Error ? channelErr.message : String(channelErr)
+          );
+        }
+      }
+
       publishAuditEvent({ action: "signUp", userId: result.user.id });
 
       return {
@@ -361,6 +415,201 @@ export class ChangfengAuth {
   async signOut(ctx: RequestContext): Promise<void> {
     await this._signOut(ctx);
   }
+
+  // ----------------------------------------------------------
+  // 手机验证码认证
+  // ----------------------------------------------------------
+
+  /**
+   * 手机验证码注册（语法糖）。
+   * 验证短信验证码后，计算合成邮箱，委托给 signUp()。
+   */
+  async signUpWithPhone(input: SignUpWithPhoneInput): Promise<PhoneAuthResult> {
+    if (!this.config.sms) {
+      throw new Error("手机注册不可用：未提供 SmsAdapter");
+    }
+
+    // 短信验证码校验
+    const smsOk = await this.config.sms.verifyCode({
+      phone: input.phone,
+      code: input.code,
+    });
+    if (!smsOk) {
+      throw new Error("短信验证码错误");
+    }
+
+    // 防重复
+    const existingChannel = await this._socialService.findByProvider("phone", input.phone);
+    if (existingChannel) {
+      throw new Error("该手机号已被注册");
+    }
+
+    const syntheticEmail = phoneToSyntheticEmail(input.phone);
+
+    return this.signUp({
+      email: syntheticEmail,
+      password: syntheticEmail,
+      name: input.name ?? "",
+      channel: { provider: "phone", identifier: input.phone },
+      captchaToken: input.captchaToken,
+    });
+  }
+
+  /**
+   * 手机验证码登录（语法糖）。
+   * 验证短信验证码后，计算合成邮箱，委托给 signIn()。
+   */
+  async signInWithPhone(input: SignInWithPhoneInput): Promise<PhoneAuthResult> {
+    if (!this.config.sms) {
+      throw new Error("手机登录不可用：未提供 SmsAdapter");
+    }
+
+    // 短信验证码校验
+    const smsOk = await this.config.sms.verifyCode({
+      phone: input.phone,
+      code: input.code,
+    });
+    if (!smsOk) {
+      publishAuditEvent({
+        action: "signInFailed",
+        metadata: { phone: input.phone },
+      });
+      throw new Error("短信验证码错误");
+    }
+
+    // 确认用户存在
+    const channel = await this._socialService.findByProvider("phone", input.phone);
+    if (!channel) {
+      publishAuditEvent({
+        action: "signInFailed",
+        metadata: { phone: input.phone },
+      });
+      throw new Error("该手机号未注册");
+    }
+
+    const syntheticEmail = phoneToSyntheticEmail(input.phone);
+
+    return this.signIn({
+      email: syntheticEmail,
+      password: syntheticEmail,
+      captchaToken: input.captchaToken,
+    });
+  }
+
+  // ----------------------------------------------------------
+  // 通道管理（邮箱/手机，复用 SocialAccount）
+  // ----------------------------------------------------------
+
+  /**
+   * 列出当前用户的所有通道（邮箱 + 手机）。
+   * 不包含社交平台绑定（如 wechat / google 等）。
+   */
+  async listChannels(ctx: RequestContext) {
+    const session = await this._getSession(ctx);
+    if (!session?.user?.id) {
+      throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
+    }
+
+    const allAccounts = await this._socialService.listByUser(session.user.id);
+    return allAccounts.filter((a) => isChannelProvider(a.provider));
+  }
+
+  /** 为当前用户绑定邮箱通道 */
+  async bindEmail(
+    ctx: RequestContext,
+    email: string
+  ): Promise<void> {
+    const session = await this._getSession(ctx);
+    if (!session?.user?.id) {
+      throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
+    }
+
+    // 检查邮箱是否已被其他用户绑定
+    const existing = await this._socialService.findByProvider("email", email);
+    if (existing) {
+      throw new Error("该邮箱已被绑定");
+    }
+
+    await this._socialService.bindToUser(session.user.id, {
+      provider: "email",
+      providerOpenid: email,
+    });
+
+    publishAuditEvent({
+      action: "channelBind",
+      userId: session.user.id,
+      metadata: { channel: "email", value: email },
+    });
+  }
+
+  /** 为当前用户绑定手机通道 */
+  async bindPhone(
+    ctx: RequestContext,
+    phone: string,
+    code: string
+  ): Promise<void> {
+    if (!this.config.sms) {
+      throw new Error("手机绑定不可用：未提供 SmsAdapter");
+    }
+
+    const session = await this._getSession(ctx);
+    if (!session?.user?.id) {
+      throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
+    }
+
+    // 短信验证码校验
+    const smsOk = await this.config.sms.verifyCode({ phone, code });
+    if (!smsOk) {
+      throw new Error("短信验证码错误");
+    }
+
+    // 检查手机号是否已被其他用户绑定
+    const existing = await this._socialService.findByProvider("phone", phone);
+    if (existing) {
+      throw new Error("该手机号已被绑定");
+    }
+
+    await this._socialService.bindToUser(session.user.id, {
+      provider: "phone",
+      providerOpenid: phone,
+    });
+
+    publishAuditEvent({
+      action: "channelBind",
+      userId: session.user.id,
+      metadata: { channel: "phone", value: phone },
+    });
+  }
+
+  /** 解绑指定通道 */
+  async unbindChannel(ctx: RequestContext, channelId: string): Promise<void> {
+    const session = await this._getSession(ctx);
+    if (!session?.user?.id) {
+      throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
+    }
+
+    // 校验该通道属于当前用户
+    const allAccounts = await this._socialService.listByUser(session.user.id);
+    const target = allAccounts.find((a) => a.id === channelId);
+    if (!target) {
+      throw new Error("通道不存在");
+    }
+    if (!isChannelProvider(target.provider)) {
+      throw new Error("该记录不是通信通道，请通过社交账户解绑接口操作");
+    }
+
+    await this._socialService.unbindFromUser(channelId);
+
+    publishAuditEvent({
+      action: "channelUnbind",
+      userId: session.user.id,
+      metadata: { channel: target.provider, value: target.providerOpenid },
+    });
+  }
+
+  // ----------------------------------------------------------
+  // 社交注册
+  // ----------------------------------------------------------
 
   /**
    * 注册新用户并同时绑定社交账户。
@@ -575,7 +824,7 @@ export class ChangfengAuth {
     const session = await this._getSession(ctx);
 
     if (!session?.user?.id) {
-      return { account: null, authUserId: null, socialAccounts: [], roles: [] };
+      return { account: null, authUserId: null, socialAccounts: [], channels: [], roles: [] };
     }
 
     const authUserId = session.user.id;
@@ -590,15 +839,32 @@ export class ChangfengAuth {
       resolveRoles(authUserId),
     ]);
 
-    const socialAccounts: SocialAccountBrief[] = socialAccountDTOs.map((d) => ({
-      id: d.id,
-      provider: d.provider,
-      providerOpenid: d.providerOpenid,
-      profileData: d.profileData,
-      createdAt: d.createdAt,
-    }));
+    // 分离通道（email/phone）和社交账户
+    const channels: UserChannel[] = [];
+    const socialAccounts: SocialAccountBrief[] = [];
 
-    return { account, authUserId, socialAccounts, roles };
+    for (const d of socialAccountDTOs) {
+      if (isChannelProvider(d.provider)) {
+        channels.push({
+          id: d.id,
+          userId: d.userId,
+          provider: d.provider,
+          providerOpenid: d.providerOpenid,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+        });
+      } else {
+        socialAccounts.push({
+          id: d.id,
+          provider: d.provider,
+          providerOpenid: d.providerOpenid,
+          profileData: d.profileData,
+          createdAt: d.createdAt,
+        });
+      }
+    }
+
+    return { account, authUserId, socialAccounts, channels, roles };
   }
 
   async requireContext(ctx: RequestContext): Promise<AuthContext> {

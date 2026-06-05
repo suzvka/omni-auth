@@ -2,19 +2,30 @@
 // ============================================================
 
 export { createAuth, ChangfengAuth } from "./auth";
-export type { ChangfengAuthConfig, SignUpInput, SignUpResult, SignInInput, SignInResult, SignUpWithSocialInput } from "./auth";
+export type {
+  ChangfengAuthConfig,
+  SignUpInput,
+  SignUpResult,
+  SignInInput,
+  SignInResult,
+  SignUpWithPhoneInput,
+  SignInWithPhoneInput,
+  PhoneAuthResult,
+  SignUpWithSocialInput,
+} from "./auth";
 
 // 错误
 export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "./errors";
 
 // 类型
-export type { AuthContext, Account, SocialAccountBrief } from "./types";
+export type { AuthContext, Account, SocialAccountBrief, UserChannel } from "./types";
 export type { AccountResolver } from "./core/resolver";
 export { setAccountResolver, getAccountResolver } from "./core/resolver";
 
 // 适配器接口
 export type { DatabaseAdapter } from "./adapters/database";
 export type { EmailAdapter } from "./adapters/email";
+export type { SmsAdapter } from "./adapters/sms";
 export type { CaptchaAdapter } from "./adapters/captcha";
 export type { RequestContext } from "./adapters/request";
 export { createRequestContext } from "./adapters/request";
@@ -56,3 +67,14 @@ export { createMemoryRateLimiter, checkRateLimit } from "./core/rateLimit";
 // 审计日志
 export type { AuditEvent, AuditAction, AuditHandler } from "./core/audit";
 export { setAuditHandler, getAuditHandler, publishAuditEvent, extractAuditContext } from "./core/audit";
+
+// 通道映射工具
+export {
+  phoneToSyntheticEmail,
+  isSyntheticEmail,
+  syntheticEmailToPhone,
+  generateRandomPassword,
+  isChannelProvider,
+  SYNTHETIC_EMAIL_DOMAIN,
+} from "./core/channel-mapping";
+export type { ChannelProvider } from "./core/channel-mapping";

@@ -21,6 +21,8 @@ export type AuditAction =
   | "updateProfile"
   | "emailVerificationRequest"
   | "emailVerified"
+  | "channelBind"
+  | "channelUnbind"
   | "socialBind"
   | "socialUnbind"
   | "oauthLogin"

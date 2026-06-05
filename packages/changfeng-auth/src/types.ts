@@ -20,11 +20,25 @@ export interface SocialAccountBrief {
   createdAt: Date;
 }
 
+/** 用户通道（邮箱 / 手机，复用 SocialAccount 存储） */
+export interface UserChannel {
+  id: string;
+  userId: string;
+  /** "email" | "phone" */
+  provider: string;
+  /** 邮箱地址或手机号 */
+  providerOpenid: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface AuthContext {
   account: Account | null;
   authUserId: string | null;
   /** 当前用户已绑定的社交账户列表 */
   socialAccounts: SocialAccountBrief[];
+  /** 当前用户的通信通道列表（邮箱 + 手机） */
+  channels: UserChannel[];
   /** 当前用户的角色列表 */
   roles: string[];
 }
