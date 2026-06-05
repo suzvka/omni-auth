@@ -38,16 +38,25 @@ export function nextjsRequestContext(
 export function createRouteHandlers(auth: ChangfengAuth) {
   const handler = auth.getBetterAuthHandler();
 
+  const wrapHandler = async (req: NextRequest): Promise<Response> => {
+    try {
+      return await handler(req);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const message = error.message || "Unknown auth handler error";
+      console.error("[changfeng-auth createRouteHandlers]", error.name, message);
+
+      const isProduction = process.env.NODE_ENV === "production";
+      return NextResponse.json(
+        { error: "AUTH_HANDLER_ERROR", message: isProduction ? "Internal Server Error" : message },
+        { status: 500 },
+      );
+    }
+  };
+
   return {
-    GET: async (req: NextRequest) => {
-      // Better Auth handler 已经是 Next.js 兼容格式
-      const result = await handler(req);
-      return result;
-    },
-    POST: async (req: NextRequest) => {
-      const result = await handler(req);
-      return result;
-    },
+    GET: (req: NextRequest) => wrapHandler(req),
+    POST: (req: NextRequest) => wrapHandler(req),
   };
 }
 
@@ -230,6 +239,11 @@ export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
     } else {
       mergedOverrides.databaseHooks = autoCreateHooks;
     }
+  }
+
+  // 自动同步 database 到 overrides.database，避免开发者写两遍
+  if (!mergedOverrides.database) {
+    mergedOverrides.database = config.database as never;
   }
 
   return createAuth({

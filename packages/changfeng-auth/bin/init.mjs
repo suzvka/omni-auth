@@ -134,6 +134,7 @@ async function main() {
   console.log("");
   console.log("     export const auth = createQuickAuth({");
   console.log("       database: PrismaAdapter({ prisma }),");
+  console.log("       // overrides.database 已由 SDK 自动同步，无需单独配置");
   console.log("       secret: process.env.BETTER_AUTH_SECRET!,");
   console.log("       baseUrl: process.env.BETTER_AUTH_URL!,");
   console.log("     });");

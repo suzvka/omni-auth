@@ -11,6 +11,21 @@ export interface UserCreatedPayload {
 export interface SessionCreatedPayload {
   userId: string;
   token: string;
+  /** better-auth 传入的完整 user 对象 */
+  user?: {
+    id: string;
+    email: string;
+    name?: string;
+    image?: string;
+    emailVerified?: boolean;
+  };
+  /** better-auth 传入的完整 session 对象 */
+  session?: {
+    id: string;
+    expiresAt?: Date;
+    ipAddress?: string;
+    userAgent?: string;
+  };
 }
 
 export interface SessionExpiredPayload {

@@ -166,10 +166,14 @@ export class ChangfengAuth {
       const onSessionCreated = config.hooks.onSessionCreated;
       databaseHooks.session = {
         create: {
-          after: async (session: { userId: string; token: string }) => {
+          after: async (session: { userId: string; token: string; id?: string; expiresAt?: Date; ipAddress?: string; userAgent?: string; user?: { id: string; email: string; name?: string; image?: string; emailVerified?: boolean } }) => {
             await onSessionCreated({
               userId: session.userId,
               token: session.token,
+              user: session.user,
+              session: session.id != null
+                ? { id: session.id, expiresAt: session.expiresAt, ipAddress: session.ipAddress, userAgent: session.userAgent }
+                : undefined,
             });
           },
         },
