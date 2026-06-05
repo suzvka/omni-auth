@@ -7,6 +7,7 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import type { DatabaseAdapter } from "./adapters/database";
 import type { EmailAdapter } from "./adapters/email";
+import type { CaptchaAdapter } from "./adapters/captcha";
 import type { RequestContext } from "./adapters/request";
 import type { AuthContext, Account, SocialAccountBrief } from "./types";
 import type { AccountResolver } from "./core/resolver";
@@ -62,6 +63,8 @@ export interface ChangfengAuthConfig {
   plugins?: BetterAuthOptions["plugins"];
   /** 覆盖 Better Auth 配置 */
   overrides?: Partial<BetterAuthOptions>;
+  /** 验证码适配器（不提供则不启用验证码校验） */
+  captcha?: CaptchaAdapter;
   /** 生命周期钩子 */
   hooks?: LifecycleHooks;
 }
@@ -74,6 +77,8 @@ export interface SignUpInput {
   email: string;
   password: string;
   name: string;
+  /** 验证码凭证（如配置了 CaptchaAdapter 则为必填） */
+  captchaToken?: string;
 }
 
 export interface SignUpResult {
@@ -84,6 +89,8 @@ export interface SignUpResult {
 export interface SignInInput {
   email: string;
   password: string;
+  /** 验证码凭证（如配置了 CaptchaAdapter 则为必填） */
+  captchaToken?: string;
 }
 
 export interface SignInResult {
@@ -284,6 +291,20 @@ export class ChangfengAuth {
   }
 
   async signUp(input: SignUpInput): Promise<SignUpResult> {
+    // 验证码校验
+    if (this.config.captcha) {
+      if (!input.captchaToken) {
+        throw new Error("缺少验证码");
+      }
+      const captchaOk = await this.config.captcha.verify({
+        token: input.captchaToken,
+        action: "signUp",
+      });
+      if (!captchaOk) {
+        throw new Error("验证码校验失败");
+      }
+    }
+
     try {
       const result = await this._signUpEmail(input.email, input.password, input.name);
 
@@ -300,6 +321,20 @@ export class ChangfengAuth {
   }
 
   async signIn(input: SignInInput): Promise<SignInResult> {
+    // 验证码校验
+    if (this.config.captcha) {
+      if (!input.captchaToken) {
+        throw new Error("缺少验证码");
+      }
+      const captchaOk = await this.config.captcha.verify({
+        token: input.captchaToken,
+        action: "signIn",
+      });
+      if (!captchaOk) {
+        throw new Error("验证码校验失败");
+      }
+    }
+
     try {
       const result = await this._signInEmail(input.email, input.password);
 
