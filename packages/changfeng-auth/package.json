@@ -36,8 +36,12 @@
   },
   "files": [
     "dist",
-    "prisma/schema.prisma"
+    "prisma/schema.prisma",
+    "bin"
   ],
+  "bin": {
+    "changfeng-auth": "./bin/init.mjs"
+  },
   "scripts": {
     "build": "tsup",
     "prepublishOnly": "pnpm build",

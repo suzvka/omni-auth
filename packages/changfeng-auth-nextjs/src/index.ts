@@ -91,8 +91,8 @@ export function createRouteHelpers(auth: ChangfengAuth): NextjsRouteHelpers {
 }
 
 // 重新导出 middleware（兼容 import from "changfeng-auth-nextjs"）
-export { createMiddleware, createDefaultMiddleware } from "./middleware";
-export type { MiddlewareConfig } from "./middleware";
+export { createMiddleware, createDefaultMiddleware, createEdgeMiddleware } from "./middleware";
+export type { MiddlewareConfig, EdgeMiddlewareConfig } from "./middleware";
 
 // ============================================================
 // oauthCookieResponse — OAuth 回调 Cookie 管理
