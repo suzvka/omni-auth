@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:packages": "pnpm -r --filter changfeng-auth --filter changfeng-auth-nextjs build",
+    "publish:packages": "pnpm -r --filter changfeng-auth --filter changfeng-auth-nextjs publish --access public"
   },
   "dependencies": {
     "@prisma/client": "^6",

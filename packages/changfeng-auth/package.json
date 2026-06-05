@@ -2,6 +2,17 @@
   "name": "changfeng-auth",
   "version": "0.2.0",
   "description": "Changfeng authentication SDK — framework-agnostic, built on Better Auth",
+  "author": "Changfeng Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/suzvka/ChangfengUserCenter.git",
+    "directory": "packages/changfeng-auth"
+  },
+  "bugs": {
+    "url": "https://github.com/suzvka/ChangfengUserCenter/issues"
+  },
+  "homepage": "https://github.com/suzvka/ChangfengUserCenter#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -29,6 +40,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "pnpm build",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -51,6 +63,5 @@
     "authentication",
     "oauth",
     "better-auth"
-  ],
-  "license": "MIT"
+  ]
 }
