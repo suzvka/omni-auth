@@ -144,6 +144,28 @@ export function oauthCookieResponse(
 export interface QuickAuthConfig {
   /** 数据库适配器（必填，通过 PrismaAdapter({ prisma }) 创建） */
   database: DatabaseAdapter;
+  /**
+   * Better Auth 原生数据库适配器（可选）。
+   *
+   * 由于 changfeng-auth 的自定义 DatabaseAdapter 与 Better Auth 原生
+   * DBAdapter 接口不同，需要通过此字段注入 Better Auth 兼容的适配器。
+   *
+   * 不提供则回退使用 database（通过类型断言），但推荐显式注入以确保
+   * 运行时兼容性。使用方式：
+   *
+   * ```ts
+   * import { prismaAdapter } from "@better-auth/prisma-adapter";
+   *
+   * createQuickAuth({
+   *   database: PrismaAdapter({ prisma }),
+   *   betterAuthDatabase: prismaAdapter(prisma, { provider: "sqlite" }),
+   *   // ...
+   * });
+   * ```
+   *
+   * @see overrides — 如果同时设置了 overrides.database，后者优先级更高
+   */
+  betterAuthDatabase?: BetterAuthOptions["database"];
   /** Better Auth 密钥 */
   secret: string;
   /** 应用基础 URL */
@@ -176,13 +198,19 @@ export interface QuickAuthConfig {
  * 自动处理：数据库适配器连接、BusinessAccount 自动创建、
  * 账户解析器注册、角色解析器注册。
  *
+ * 注意：changfeng-auth 的 DatabaseAdapter 与 Better Auth 原生
+ * DBAdapter 接口不同。推荐通过 betterAuthDatabase 显式注入
+ * Better Auth 兼容的适配器（如 @better-auth/prisma-adapter）。
+ *
  * @example
  * ```ts
  * import { PrismaAdapter } from "changfeng-auth/adapters/prisma";
+ * import { prismaAdapter } from "@better-auth/prisma-adapter";
  * import { createQuickAuth } from "changfeng-auth-nextjs";
  *
  * export const auth = createQuickAuth({
  *   database: PrismaAdapter({ prisma }),
+ *   betterAuthDatabase: prismaAdapter(prisma, { provider: "postgresql" }),
  *   secret: process.env.BETTER_AUTH_SECRET!,
  *   baseUrl: process.env.BETTER_AUTH_URL!,
  * });
@@ -241,9 +269,10 @@ export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
     }
   }
 
-  // 自动同步 database 到 overrides.database，避免开发者写两遍
+  // 设置 better-auth 兼容的数据库适配器
+  // priority: overrides.database > betterAuthDatabase > database (with as never)
   if (!mergedOverrides.database) {
-    mergedOverrides.database = config.database as never;
+    mergedOverrides.database = config.betterAuthDatabase ?? (config.database as never);
   }
 
   return createAuth({
