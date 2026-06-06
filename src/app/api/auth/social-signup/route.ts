@@ -4,7 +4,7 @@ import { oauthCookieResponse } from "changfeng-auth-nextjs";
 
 // ============================================================
 // POST /api/auth/social-signup
-// 社交账户注册：通过 SDK 的 signUpWithSocial 一行完成注册+绑定
+// 统一通道注册：通过 authenticateChannel 一行完成注册+绑定
 // ============================================================
 
 export async function POST(request: Request) {
@@ -40,29 +40,30 @@ export async function POST(request: Request) {
       );
     }
 
-    // ---------- 注册 + 社交绑定（SDK 原子操作） ----------
-    const result = await auth.signUpWithSocial({
-      email,
-      password,
-      name,
-      social: {
-        provider: social.provider,
-        providerOpenid: social.providerOpenid,
+    // ---------- 统一通道注册 ----------
+    const result = await auth.authenticateChannel({
+      provider: social.provider,
+      providerOpenid: social.providerOpenid,
+      credential: { type: "password", value: password },
+      profile: { name },
+      channelData: {
         accessToken: social.accessToken,
         refreshToken: social.refreshToken,
         tokenExpiresAt: social.tokenExpiresAt,
         profileData: social.profileData,
+        valid: 1,
+        allowPasswordUpdate: 0,
       },
     });
 
     return oauthCookieResponse({
       token: result.token,
       userId: result.userId,
-      isNewUser: true,
+      isNewUser: result.isNewUser,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "服务器内部错误";
-    const status = message.includes("已被其他用户绑定") ? 409 : 422;
+    const status = message.includes("已被绑定") ? 409 : 422;
     console.error("[social-signup]", err);
     return NextResponse.json({ error: message }, { status });
   }

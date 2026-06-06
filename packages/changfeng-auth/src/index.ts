@@ -8,9 +8,8 @@ export type {
   SignUpResult,
   SignInInput,
   SignInResult,
-  SignUpWithPhoneInput,
-  SignInWithPhoneInput,
-  PhoneAuthResult,
+  ChannelAuthInput,
+  ChannelAuthResult,
   SignUpWithSocialInput,
 } from "./auth";
 
@@ -24,9 +23,6 @@ export { setAccountResolver, getAccountResolver } from "./core/resolver";
 
 // 适配器接口
 export type { DatabaseAdapter } from "./adapters/database";
-export type { EmailAdapter } from "./adapters/email";
-export type { SmsAdapter } from "./adapters/sms";
-export type { CaptchaAdapter } from "./adapters/captcha";
 export type { RequestContext } from "./adapters/request";
 export { createRequestContext } from "./adapters/request";
 

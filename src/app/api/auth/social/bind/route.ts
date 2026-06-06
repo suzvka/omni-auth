@@ -1,13 +1,16 @@
 // POST /api/auth/social/bind
-// 已登录用户绑定新的社交账户
+// 已登录用户绑定新的渠道
 
 import { NextResponse } from "next/server";
-import { auth, routeHelpers } from "@/lib/auth";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth";
+import { nextjsRequestContext } from "changfeng-auth-nextjs";
 import { SocialAccountConflictError } from "changfeng-auth";
 
 export async function POST(request: Request) {
   try {
-    const { authUserId } = await routeHelpers.requireContext();
+    const ctx = nextjsRequestContext(await headers());
+    const { authUserId } = await auth.requireContext(ctx);
 
     const body = await request.json();
     const { provider, providerOpenid } = body as {
@@ -17,6 +20,8 @@ export async function POST(request: Request) {
       refreshToken?: string;
       tokenExpiresAt?: number;
       profileData?: Record<string, unknown>;
+      valid?: number;
+      allowPasswordUpdate?: number;
     };
 
     if (!provider || !providerOpenid) {
@@ -26,16 +31,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await auth.social.bindToUser(authUserId!, {
+    const result = await auth.bindChannel(ctx, {
       provider,
       providerOpenid,
       accessToken: body.accessToken,
       refreshToken: body.refreshToken,
       tokenExpiresAt: body.tokenExpiresAt,
       profileData: body.profileData,
+      valid: body.valid,
+      allowPasswordUpdate: body.allowPasswordUpdate,
     });
 
-    return NextResponse.json({ success: true, socialAccount: result });
+    return NextResponse.json({ success: true, channel: result });
   } catch (err) {
     if (err instanceof SocialAccountConflictError) {
       return NextResponse.json({ error: err.message }, { status: 409 });

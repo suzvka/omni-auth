@@ -73,10 +73,26 @@ export function createOAuthHandler(deps: {
         },
       });
 
+      // 查询当前渠道信息
+      const channelRecord = (await db.findOne({
+        model: "socialAccount",
+        where: [
+          { field: "provider", value: provider },
+          { field: "providerOpenid", value: exchanged.openid },
+        ],
+      })) as Record<string, unknown> | null;
+
       return {
         token,
         userId: existingSocial.userId,
         isNewUser: false,
+        channel: {
+          id: channelRecord?.id as string ?? "",
+          provider,
+          providerOpenid: exchanged.openid,
+          valid: (channelRecord?.valid as number) ?? 1,
+          allowPasswordUpdate: (channelRecord?.allowPasswordUpdate as number) ?? 0,
+        },
       };
     }
 
@@ -96,20 +112,29 @@ export function createOAuthHandler(deps: {
       throw new Error(`OAuth 注册失败 (${provider}): ${message}`);
     }
 
-    // 绑定社交账户
-    await socialService.bindToUser(signUpResult.user.id, {
+    // 绑定社交账户（valid=1，真实的 OAuth 绑定）
+    const bindResult = await socialService.bindToUser(signUpResult.user.id, {
       provider,
       providerOpenid: exchanged.openid,
       accessToken: exchanged.accessToken,
       refreshToken: exchanged.refreshToken,
       tokenExpiresAt: exchanged.expiresAt,
       profileData: exchanged.profileData,
-    });
+      valid: 1,
+      allowPasswordUpdate: 0,
+    }) as { id: string; valid: number; allowPasswordUpdate: number };
 
     return {
       token: signUpResult.token ?? "",
       userId: signUpResult.user.id,
       isNewUser: true,
+      channel: {
+        id: bindResult.id,
+        provider,
+        providerOpenid: exchanged.openid,
+        valid: bindResult.valid,
+        allowPasswordUpdate: bindResult.allowPasswordUpdate,
+      },
     };
   };
 }

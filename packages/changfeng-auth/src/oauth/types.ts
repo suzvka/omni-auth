@@ -28,4 +28,12 @@ export interface OAuthCallbackResult {
   userId: string;
   /** 是否为新注册用户 */
   isNewUser: boolean;
+  /** 绑定的渠道信息 */
+  channel: {
+    id: string;
+    provider: string;
+    providerOpenid: string;
+    valid: number;
+    allowPasswordUpdate: number;
+  };
 }

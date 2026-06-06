@@ -1,24 +1,27 @@
 // DELETE /api/auth/social/unbind
-// 已登录用户解绑社交账户
+// 已登录用户解绑渠道
 
 import { NextResponse } from "next/server";
-import { auth, routeHelpers } from "@/lib/auth";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth";
+import { nextjsRequestContext } from "changfeng-auth-nextjs";
 
 export async function DELETE(request: Request) {
   try {
-    await routeHelpers.requireContext();
+    const ctx = nextjsRequestContext(await headers());
+    await auth.requireContext(ctx);
 
     const body = await request.json();
     const { id } = body as { id?: string };
 
     if (!id) {
       return NextResponse.json(
-        { error: "缺少社交账户 id" },
+        { error: "缺少渠道 id" },
         { status: 400 }
       );
     }
 
-    await auth.social.unbindFromUser(id);
+    await auth.unbindChannel(ctx, id);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("[social/unbind]", err);

@@ -14,6 +14,7 @@ export async function GET() {
       : null,
     authUserId: ctx.authUserId,
     roles: ctx.roles,
+    channels: ctx.channels,
     socialAccounts: ctx.socialAccounts,
   });
 }

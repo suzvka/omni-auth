@@ -33,7 +33,11 @@ export async function POST(
     }
 
     const result = await auth.handleOAuthCallback(provider, code, redirectUri);
-    return oauthCookieResponse(result);
+    return oauthCookieResponse({
+      token: result.token,
+      userId: result.userId,
+      isNewUser: result.isNewUser,
+    }, { channel: result.channel });
   } catch (err) {
     console.error("[social/callback]", err);
     const message = err instanceof Error ? err.message : "服务器内部错误";

@@ -13,6 +13,31 @@ import { SocialAccountConflictError } from "../errors";
 // 将数据库记录转为 DTO
 // ----------------------------------------------------------
 
+/**
+ * 安全解析 profileData。
+ *
+ * 某些环境（如 SQLite 非 JSON 模式、原始查询等）可能将 profileData
+ * 以 JSON 字符串形式返回，需要运行时防御。
+ */
+function parseProfileData(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // 不是合法 JSON，返回空对象
+    }
+    return {};
+  }
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
 function toDTO(record: Record<string, unknown>): SocialAccountDTO {
   return {
     id: record.id as string,
@@ -22,7 +47,9 @@ function toDTO(record: Record<string, unknown>): SocialAccountDTO {
     accessToken: (record.accessToken as string) ?? null,
     refreshToken: (record.refreshToken as string) ?? null,
     tokenExpiresAt: (record.tokenExpiresAt as Date) ?? null,
-    profileData: (record.profileData as Record<string, unknown>) ?? {},
+    profileData: parseProfileData(record.profileData),
+    valid: (record.valid as number) ?? 0,
+    allowPasswordUpdate: (record.allowPasswordUpdate as number) ?? 0,
     createdAt: record.createdAt as Date,
     updatedAt: record.updatedAt as Date,
   };
@@ -94,6 +121,8 @@ export function createSocialService(db: DatabaseAdapter) {
         refreshToken?: string;
         tokenExpiresAt?: Date | number;
         profileData?: Record<string, unknown>;
+        valid?: number;
+        allowPasswordUpdate?: number;
       }
     ): Promise<SocialAccountDTO> {
       const existing = (await db.findOne({
@@ -126,6 +155,8 @@ export function createSocialService(db: DatabaseAdapter) {
                 : new Date(input.tokenExpiresAt)
               : undefined,
           profileData: input.profileData ?? {},
+          valid: input.valid ?? 0,
+          allowPasswordUpdate: input.allowPasswordUpdate ?? 0,
         },
       });
       return toDTO(record as Record<string, unknown>);

@@ -7,7 +7,7 @@ import {
   createAuth,
   setAccountResolver,
 } from "changfeng-auth";
-import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver, CaptchaAdapter } from "changfeng-auth";
+import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver } from "changfeng-auth";
 import type { BetterAuthOptions } from "better-auth";
 import { prismaAdapter } from "@better-auth/prisma-adapter";
 import type { PrismaConfig } from "@better-auth/prisma-adapter";
@@ -195,8 +195,6 @@ export interface QuickAuthConfig {
   overrides?: Partial<BetterAuthOptions>;
   /** 生命周期钩子 */
   hooks?: LifecycleHooks;
-  /** 验证码适配器（不提供则不启用验证码校验） */
-  captcha?: CaptchaAdapter;
   /** 是否在创建 User 时自动创建 BusinessAccount，默认 true */
   autoCreateBusinessAccount?: boolean;
 }
@@ -305,6 +303,5 @@ export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
     plugins: config.plugins,
     overrides: mergedOverrides as Partial<BetterAuthOptions>,
     hooks: config.hooks,
-    captcha: config.captcha,
   });
 }

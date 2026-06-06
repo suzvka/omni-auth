@@ -206,6 +206,39 @@ describe("createSocialService", () => {
 
       expect(result.profileData).toEqual({ nickname: "test", avatar: "url" });
     });
+
+    it("profileData 为 JSON 字符串 \"{}\" 时应转为对象 {}", async () => {
+      // 模拟某些数据库环境（SQLite 等）返回 JSON 字符串
+      const raw = await db.create({
+        model: "socialAccount",
+        data: {
+          userId: "user_json",
+          provider: "wechat",
+          providerOpenid: "oid_json_str",
+          profileData: "{}", // 字符串而非对象
+        },
+      });
+
+      const accounts = await service.listByUser("user_json");
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0].profileData).toEqual({});
+    });
+
+    it("profileData 为 null 时应转为 {}", async () => {
+      await db.create({
+        model: "socialAccount",
+        data: {
+          userId: "user_null",
+          provider: "wechat",
+          providerOpenid: "oid_null",
+          profileData: null,
+        },
+      });
+
+      const accounts = await service.listByUser("user_null");
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0].profileData).toEqual({});
+    });
   });
 
   // ---- unbindFromUser ----
