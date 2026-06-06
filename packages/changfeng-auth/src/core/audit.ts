@@ -27,7 +27,10 @@ export type AuditAction =
   | "socialUnbind"
   | "oauthLogin"
   | "sessionRevoked"
-  | "sessionRevokedAll";
+  | "sessionRevokedAll"
+  | "changeName"
+  | "channelUpdate"
+  | "verificationSent";
 
 export interface AuditEvent {
   /** 事件类型 */

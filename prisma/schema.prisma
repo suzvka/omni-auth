@@ -90,6 +90,7 @@ model SocialAccount {
   profileData         Json     @default("{}")
   valid               Int      @default(0)
   allowPasswordUpdate Int      @default(0)
+  allowVerification   Int      @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

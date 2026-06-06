@@ -28,6 +28,8 @@ import { createAccountDeletion } from "./core/account";
 import { createSessionManagement } from "./core/session";
 import { resolveRoles, type RoleResolver, hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
 import { publishAuditEvent } from "./core/audit";
+import { createChannelVerification, registerVerificationSender } from "./core/verification-channel";
+import type { VerificationSender } from "./core/verification-channel";
 import {
   phoneToSyntheticEmail,
   generateRandomPassword,
@@ -131,6 +133,7 @@ export interface ChannelAuthInput {
     profileData?: Record<string, unknown>;
     valid?: number;
     allowPasswordUpdate?: number;
+    allowVerification?: number;
   };
 }
 
@@ -144,6 +147,7 @@ export interface ChannelAuthResult {
     providerOpenid: string;
     valid: number;
     allowPasswordUpdate: number;
+    allowVerification: number;
   };
 }
 
@@ -174,6 +178,7 @@ export class ChangfengAuth {
   private _passwordReset: ReturnType<typeof createPasswordReset> | null = null;
   private _accountDeletion: ReturnType<typeof createAccountDeletion> | null = null;
   private _sessionManagement: ReturnType<typeof createSessionManagement> | null = null;
+  private _channelVerification: ReturnType<typeof createChannelVerification> | null = null;
   /** onSessionExpired 回调（Better Auth 无内置 hook，由 SDK 方法触发） */
   private _onSessionExpired: ((payload: SessionExpiredPayload) => void | Promise<void>) | null = null;
 
@@ -309,6 +314,11 @@ export class ChangfengAuth {
       auth: this._betterAuth,
       db: config.database,
     });
+
+    // 初始化渠道验证码
+    this._channelVerification = createChannelVerification({
+      db: config.database,
+    });
   }
 
   // ----------------------------------------------------------
@@ -437,6 +447,7 @@ export class ChangfengAuth {
           providerOpenid: existingChannel.providerOpenid,
           valid: existingChannel.valid,
           allowPasswordUpdate: existingChannel.allowPasswordUpdate,
+          allowVerification: existingChannel.allowVerification,
         },
       };
     }
@@ -469,6 +480,7 @@ export class ChangfengAuth {
       profileData: input.channelData?.profileData,
       valid: input.channelData?.valid ?? 1,
       allowPasswordUpdate: input.channelData?.allowPasswordUpdate ?? 0,
+      allowVerification: input.channelData?.allowVerification ?? 0,
     };
 
     const updatedRecord = (await this.config.database.updateOne({
@@ -492,6 +504,7 @@ export class ChangfengAuth {
         providerOpenid: input.providerOpenid,
         valid: (updatedRecord.valid as number) ?? 1,
         allowPasswordUpdate: (updatedRecord.allowPasswordUpdate as number) ?? 0,
+        allowVerification: (updatedRecord.allowVerification as number) ?? 0,
       },
     };
   }
@@ -511,6 +524,7 @@ export class ChangfengAuth {
       profileData?: Record<string, unknown>;
       valid?: number;
       allowPasswordUpdate?: number;
+      allowVerification?: number;
     }
   ): Promise<SocialAccountDTO> {
     const session = await this._getSession(ctx);
@@ -528,19 +542,6 @@ export class ChangfengAuth {
     }
 
     const result = await this._socialService.bindToUser(session.user.id, input);
-
-    // 如果 valid=1，同步更新 User.email
-    if (input.valid === 1 && input.provider === "email") {
-      try {
-        await this.config.database.updateOne({
-          model: "user",
-          where: [{ field: "id", value: session.user.id }],
-          update: { email: input.providerOpenid },
-        });
-      } catch (err) {
-        console.error(`[bindChannel] 更新 User.email 失败:`, err);
-      }
-    }
 
     publishAuditEvent({
       action: "channelBind",
@@ -869,6 +870,7 @@ export class ChangfengAuth {
         providerOpenid: d.providerOpenid,
         valid: d.valid,
         allowPasswordUpdate: d.allowPasswordUpdate,
+        allowVerification: d.allowVerification,
         createdAt: d.createdAt,
         updatedAt: d.updatedAt,
       });
@@ -882,6 +884,7 @@ export class ChangfengAuth {
           profileData: d.profileData,
           valid: d.valid,
           allowPasswordUpdate: d.allowPasswordUpdate,
+          allowVerification: d.allowVerification,
           createdAt: d.createdAt,
         });
       }
@@ -943,11 +946,196 @@ export class ChangfengAuth {
   }
 
   // ----------------------------------------------------------
+  // 渠道验证码
+  // ----------------------------------------------------------
+
+  /**
+   * 向指定渠道发送验证码。
+   *
+   * SDK 校验 allowVerification flag → 查找 provider 注册的 sender → 生成验证码 → 调度发送。
+   * 使用前需通过 registerVerificationSender() 注册对应 provider 的发码器。
+   */
+  async sendVerificationCode(
+    ctx: RequestContext,
+    channelId: string
+  ): Promise<void> {
+    if (!this._channelVerification) {
+      throw new Error("渠道验证码不可用");
+    }
+
+    const session = await this._getSession(ctx);
+    if (!session?.user?.id) {
+      throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
+    }
+
+    // 查找渠道，校验归属
+    const channels = await this._socialService.listByUser(session.user.id);
+    const channel = channels.find((c) => c.id === channelId);
+    if (!channel) throw new Error("渠道不存在或不属于当前用户");
+    if (!channel.allowVerification) {
+      throw new Error("该渠道不支持接收验证码");
+    }
+
+    const channelRef = {
+      id: channel.id,
+      provider: channel.provider,
+      providerOpenid: channel.providerOpenid,
+      accessToken: channel.accessToken,
+      refreshToken: channel.refreshToken,
+      tokenExpiresAt: channel.tokenExpiresAt,
+      profileData: channel.profileData,
+    };
+
+    await this._channelVerification.send(
+      channelId,
+      channel.provider,
+      channel.providerOpenid,
+      channelRef
+    );
+
+    publishAuditEvent({
+      action: "verificationSent",
+      userId: session.user.id,
+      metadata: { channelId, provider: channel.provider },
+    });
+  }
+
+  /**
+   * 校验渠道验证码。
+   *
+   * 不要求登录态（注册/绑定场景可能未登录），调用者自行判断业务上下文。
+   */
+  async verifyChannelCode(
+    provider: string,
+    providerOpenid: string,
+    code: string
+  ): Promise<boolean> {
+    if (!this._channelVerification) {
+      throw new Error("渠道验证码不可用");
+    }
+    return this._channelVerification.verify(provider, providerOpenid, code);
+  }
+
+  /**
+   * 注册指定 provider 的验证码发送器。
+   *
+   * 第三方在初始化后调用，为 email/phone/wechat 等渠道注册发码实现。
+   */
+  registerVerificationSender(provider: string, sender: VerificationSender): void {
+    registerVerificationSender(provider, sender);
+  }
+
+  // ----------------------------------------------------------
   // 社交账户
   // ----------------------------------------------------------
 
   get social() {
     return this._socialService;
+  }
+
+  // ----------------------------------------------------------
+  // 数据库直通（增删改查）
+  // ----------------------------------------------------------
+
+  /** 暴露底层 DatabaseAdapter 的 CRUD 能力，无需额外安装数据库依赖 */
+  get db() {
+    const adapter = this.config.database;
+    return {
+      findOne: (params: Parameters<DatabaseAdapter["findOne"]>[0]) =>
+        adapter.findOne(params),
+      findMany: (params: Parameters<DatabaseAdapter["findMany"]>[0]) =>
+        adapter.findMany(params),
+      create: (params: Parameters<DatabaseAdapter["create"]>[0]) =>
+        adapter.create(params),
+      updateOne: (params: Parameters<DatabaseAdapter["updateOne"]>[0]) =>
+        adapter.updateOne(params),
+      deleteOne: (params: Parameters<DatabaseAdapter["deleteOne"]>[0]) =>
+        adapter.deleteOne(params),
+      deleteMany: (params: Parameters<DatabaseAdapter["deleteMany"]>[0]) =>
+        adapter.deleteMany(params),
+    };
+  }
+
+  // ----------------------------------------------------------
+  // 用户信息变更（仅用户自身属性，渠道平权走 bind/unbind/change.channel）
+  // ----------------------------------------------------------
+
+  get change() {
+    const self = this;
+    return {
+      /** 更新用户名（同步 user.name + businessAccount.displayName） */
+      async name(ctx: RequestContext, newName: string): Promise<void> {
+        if (!self._accountDeletion) throw new Error("账号管理不可用");
+        await self._accountDeletion.updateProfile(ctx, { name: newName });
+        const session = await self._getSession(ctx);
+        if (session?.user?.id) {
+          publishAuditEvent({ action: "changeName", userId: session.user.id });
+        }
+      },
+
+      /** 更新头像 */
+      async image(ctx: RequestContext, newImage: string): Promise<void> {
+        if (!self._accountDeletion) throw new Error("账号管理不可用");
+        await self._accountDeletion.updateProfile(ctx, { image: newImage });
+      },
+
+      /**
+       * 更换渠道标识符（邮箱/手机号/微信openid 等平等处理）。
+       *
+       * 唯一性校验 → socialAccount.providerOpenid 更新。
+       * user.email 为 Better Auth 内部占位符，不做同步。
+       */
+      async channel(
+        ctx: RequestContext,
+        channelId: string,
+        input: { identifier: string }
+      ): Promise<void> {
+        const session = await self._getSession(ctx);
+        if (!session?.user?.id) {
+          throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
+        }
+
+        const userId = session.user.id;
+
+        // 校验渠道归属
+        const allAccounts = await self._socialService.listByUser(userId);
+        const target = allAccounts.find((a) => a.id === channelId);
+        if (!target) throw new Error("渠道不存在或不属于当前用户");
+
+        const oldIdentifier = target.providerOpenid;
+        const provider = target.provider;
+
+        // 标识符未变则跳过
+        if (oldIdentifier === input.identifier) return;
+
+        // 唯一性校验
+        const conflict = await self._socialService.findByProvider(
+          provider,
+          input.identifier
+        );
+        if (conflict) {
+          throw new Error(`该${provider}已被其他账号使用`);
+        }
+
+        // 更新渠道标识符
+        await self.config.database.updateOne({
+          model: "socialAccount",
+          where: [{ field: "id", value: channelId }],
+          update: { providerOpenid: input.identifier },
+        });
+
+        publishAuditEvent({
+          action: "channelUpdate",
+          userId,
+          metadata: {
+            channelId,
+            provider,
+            oldIdentifier,
+            newIdentifier: input.identifier,
+          },
+        });
+      },
+    };
   }
 
   // ----------------------------------------------------------

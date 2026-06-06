@@ -31,10 +31,17 @@ export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } f
 
 /** 从 Next.js headers() 构建 RequestContext */
 export function nextjsRequestContext(
-  hdrs?: Awaited<ReturnType<typeof headers>>
+  hdrs: Awaited<ReturnType<typeof headers>>
 ): RequestContext {
-  const raw = hdrs ?? (globalThis as Record<string, unknown>);
-  return createRequestContext(raw as Record<string, string | string[] | undefined>);
+  const raw: Record<string, string> = {};
+  if (hdrs && typeof (hdrs as unknown as { forEach: unknown }).forEach === "function") {
+    (hdrs as unknown as { forEach: (fn: (value: string, key: string) => void) => void }).forEach(
+      (value, key) => {
+        raw[key.toLowerCase()] = value;
+      }
+    );
+  }
+  return createRequestContext(raw);
 }
 
 /** 创建 Next.js catch-all API 路由处理器 */

@@ -1,6 +1,6 @@
 {
   "database": "changfeng_user_center",
-  "version": 2,
+  "version": 3,
   "tables": [
     {
       "name": "User",
@@ -83,6 +83,9 @@
         { "name": "refreshToken", "type": "text" },
         { "name": "tokenExpiresAt", "type": "timestamptz" },
         { "name": "profileData", "type": "jsonb", "required": true, "default": "'{}'" },
+        { "name": "valid", "type": "integer", "required": true, "default": "0" },
+        { "name": "allowPasswordUpdate", "type": "integer", "required": true, "default": "0" },
+        { "name": "allowVerification", "type": "integer", "required": true, "default": "0" },
         { "name": "createdAt", "type": "timestamptz", "required": true, "default": "now()" },
         { "name": "updatedAt", "type": "timestamptz", "required": true }
       ],

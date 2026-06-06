@@ -43,6 +43,10 @@ export type { SocialAccountDTO } from "./social/types";
 export type { TokenRefresher, TokenRefreshResult, SocialAccountRef } from "./social/token";
 export { registerTokenRefresher, getTokenRefresher } from "./social/token";
 
+// 渠道验证码
+export type { VerificationSender } from "./core/verification-channel";
+export { registerVerificationSender, getVerificationSender } from "./core/verification-channel";
+
 // 生命周期钩子
 export type { LifecycleHooks, UserCreatedPayload, SessionCreatedPayload, SessionExpiredPayload } from "./core/lifecycle";
 

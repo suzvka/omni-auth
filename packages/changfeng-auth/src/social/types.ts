@@ -13,6 +13,7 @@ export interface SocialAccountDTO {
   profileData: Record<string, unknown>;
   valid: number;
   allowPasswordUpdate: number;
+  allowVerification: number;
   createdAt: Date;
   updatedAt: Date;
 }

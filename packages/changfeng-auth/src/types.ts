@@ -19,6 +19,7 @@ export interface SocialAccountBrief {
   profileData: Record<string, unknown>;
   valid: number;
   allowPasswordUpdate: number;
+  allowVerification: number;
   createdAt: Date;
 }
 
@@ -34,6 +35,8 @@ export interface UserChannel {
   valid: number;
   /** 是否允许通过该渠道的凭证更新密码 */
   allowPasswordUpdate: number;
+  /** 是否允许通过该渠道接收验证码 */
+  allowVerification: number;
   createdAt: Date;
   updatedAt: Date;
 }

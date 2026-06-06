@@ -50,6 +50,7 @@ function toDTO(record: Record<string, unknown>): SocialAccountDTO {
     profileData: parseProfileData(record.profileData),
     valid: (record.valid as number) ?? 0,
     allowPasswordUpdate: (record.allowPasswordUpdate as number) ?? 0,
+    allowVerification: (record.allowVerification as number) ?? 0,
     createdAt: record.createdAt as Date,
     updatedAt: record.updatedAt as Date,
   };
@@ -123,6 +124,7 @@ export function createSocialService(db: DatabaseAdapter) {
         profileData?: Record<string, unknown>;
         valid?: number;
         allowPasswordUpdate?: number;
+        allowVerification?: number;
       }
     ): Promise<SocialAccountDTO> {
       const existing = (await db.findOne({
@@ -157,6 +159,7 @@ export function createSocialService(db: DatabaseAdapter) {
           profileData: input.profileData ?? {},
           valid: input.valid ?? 0,
           allowPasswordUpdate: input.allowPasswordUpdate ?? 0,
+          allowVerification: input.allowVerification ?? 0,
         },
       });
       return toDTO(record as Record<string, unknown>);
