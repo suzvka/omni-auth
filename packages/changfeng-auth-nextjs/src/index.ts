@@ -113,10 +113,15 @@ export type { MiddlewareConfig, EdgeMiddlewareConfig } from "./middleware";
 interface OAuthResult { token: string | null; userId: string; isNewUser: boolean }
 
 /**
- * 创建带有 session cookie 的 OAuth 回调响应。
- * 自动设置 better-auth.session_token cookie，无需手写 cookie 设置逻辑。
+ * 创建带有签名 session cookie 的 OAuth 回调响应。
+ *
+ * 核心修复：Better Auth 要求 session_token cookie 必须带有 HMAC 签名
+ * （格式：`rawToken.base64urlSignature`），否则 getSession 无法读取会话。
+ * 此方法内部调用 auth.signSessionToken() 完成签名，调用者无需了解
+ * Better Auth 的签名细节，彻底消除抽象泄漏。
  */
 export function oauthCookieResponse(
+  auth: ChangfengAuth,
   result: OAuthResult,
   body?: Record<string, unknown>
 ): NextResponse {
@@ -128,7 +133,8 @@ export function oauthCookieResponse(
   });
 
   if (result.token) {
-    response.cookies.set("better-auth.session_token", result.token, {
+    const signedToken = auth.signSessionToken(result.token);
+    response.cookies.set("better-auth.session_token", signedToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",

@@ -33,7 +33,7 @@ export async function POST(
     }
 
     const result = await auth.handleOAuthCallback(provider, code, redirectUri);
-    return oauthCookieResponse({
+    return oauthCookieResponse(auth, {
       token: result.token,
       userId: result.userId,
       isNewUser: result.isNewUser,

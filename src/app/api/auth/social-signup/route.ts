@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       },
     });
 
-    return oauthCookieResponse({
+    return oauthCookieResponse(auth, {
       token: result.token,
       userId: result.userId,
       isNewUser: result.isNewUser,

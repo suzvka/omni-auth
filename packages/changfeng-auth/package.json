@@ -1,6 +1,6 @@
 {
   "name": "changfeng-auth",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Changfeng authentication SDK — framework-agnostic, built on Better Auth",
   "author": "Changfeng Team",
   "license": "MIT",

@@ -5,6 +5,7 @@
 // ============================================================
 
 import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { createHmac } from "crypto";
 import type { DatabaseAdapter } from "./adapters/database";
 import type { RequestContext } from "./adapters/request";
 import type { AuthContext, Account, SocialAccountBrief, UserChannel } from "./types";
@@ -604,6 +605,23 @@ export class ChangfengAuth {
     });
 
     return token;
+  }
+
+  /**
+   * 使用 HMAC-SHA256 签名原始 session token，生成可直接设置到 cookie 的值。
+   *
+   * Better Auth 通过 ctx.setSignedCookie 在原始 token 后追加 base64 编码的
+   * HMAC 签名：`rawToken.signature`（signature = btoa(hmac) = 标准 base64）。
+   * 如果直接将原始 token 设置到 cookie 而不签名，getSession 会因为 HMAC 校验
+   * 失败而返回 null，导致"登录成功但会话无效"的 bug。
+   *
+   * 调用者应将此方法的返回值设置到 `better-auth.session_token` cookie。
+   */
+  signSessionToken(rawToken: string): string {
+    const signature = createHmac("sha256", this.config.secret)
+      .update(rawToken)
+      .digest("base64");
+    return `${rawToken}.${signature}`;
   }
 
   // ----------------------------------------------------------
