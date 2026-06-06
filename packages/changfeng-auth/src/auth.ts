@@ -621,7 +621,7 @@ export class ChangfengAuth {
     const signature = createHmac("sha256", this.config.secret)
       .update(rawToken)
       .digest("base64");
-    return `${rawToken}.${signature}`;
+    return encodeURIComponent(`${rawToken}.${signature}`);
   }
 
   // ----------------------------------------------------------
