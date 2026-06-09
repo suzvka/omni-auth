@@ -10,6 +10,7 @@ import {
 } from "changfeng-auth";
 import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver } from "changfeng-auth";
 import type { BetterAuthOptions } from "better-auth";
+import { toBetterAuthAdapter } from "./adapter-bridge";
 
 // ============================================================
 // 统一导出：所有常用类型只需从 changfeng-auth-nextjs 导入
@@ -307,7 +308,9 @@ export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
     if (config.betterAuthDatabase) {
       mergedOverrides.database = config.betterAuthDatabase;
     } else {
-      mergedOverrides.database = database as never;
+      // v0.6.0: 桥接 DatabaseAdapter → Better Auth CustomAdapter
+      // 解决方法名差异（update/delete vs updateOne/deleteOne）和 Where 运算符翻译
+      mergedOverrides.database = toBetterAuthAdapter(database) as never;
     }
   }
 

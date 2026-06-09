@@ -126,7 +126,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("🔧 changfeng-auth db:push v0.6.0");
+  console.log("🔧 changfeng-auth db:push v0.6.1");
   console.log(`   连接: ${databaseUrl.replace(/\/\/.*@/, "//***@")}`);
   console.log("");
 
