@@ -11,6 +11,18 @@ export interface Account {
   updatedAt: Date;
 }
 
+/** 对外暴露的 User 对象（不含敏感字段） */
+export interface PublicUser {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  image: string | null;
+  role: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 /** 精简版社交账户信息（仅暴露给 AuthContext 消费方） */
 export interface SocialAccountBrief {
   id: string;

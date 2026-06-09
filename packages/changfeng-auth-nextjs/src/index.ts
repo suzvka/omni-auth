@@ -6,12 +6,10 @@ import {
   createRequestContext,
   createAuth,
   setAccountResolver,
+  PgAdapter,
 } from "changfeng-auth";
 import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver } from "changfeng-auth";
 import type { BetterAuthOptions } from "better-auth";
-import { prismaAdapter } from "@better-auth/prisma-adapter";
-import type { PrismaConfig } from "@better-auth/prisma-adapter";
-import type { PrismaClient } from "@prisma/client";
 
 // ============================================================
 // 统一导出：所有常用类型只需从 changfeng-auth-nextjs 导入
@@ -157,32 +155,40 @@ export function oauthCookieResponse(
 // createQuickAuth — 一站式初始化工厂
 // ============================================================
 
-/** PrismaAdapter 暴露的元信息（运行时检测用，无需 import） */
-interface PrismaAdapterMeta {
-  _prisma: unknown;
-  _provider?: string;
+function isDeclarativeDbConfig(cfg: DatabaseAdapter | DeclarativeDbConfig): cfg is DeclarativeDbConfig {
+  return typeof cfg === "object" && cfg !== null && "url" in cfg;
 }
 
-function getPrismaMeta(
-  adapter: DatabaseAdapter
-): PrismaAdapterMeta | null {
-  const a = adapter as unknown as Record<string, unknown>;
-  if (typeof a !== "object" || a === null || !("_prisma" in a)) return null;
-  return a as unknown as PrismaAdapterMeta;
+/** 声明式数据库配置 */
+export interface DeclarativeDbConfig {
+  /** PostgreSQL 连接 URL（必填） */
+  url: string;
+  /** 连接池配置（可选） */
+  pool?: {
+    max?: number;
+    idleTimeoutMs?: number;
+  };
 }
 
 export interface QuickAuthConfig {
-  /** 数据库适配器（必填，通过 PrismaAdapter({ prisma }) 创建） */
-  database: DatabaseAdapter;
+  /**
+   * 数据库适配器。
+   *
+   * **声明式配置（推荐）：**
+   * ```ts
+   * database: { url: process.env.DATABASE_URL }
+   * ```
+   * SDK 内置 pg 驱动，零 ORM 依赖。
+   *
+   * **自定义适配器：**
+   * 也可传入任意 DatabaseAdapter 实现。
+   */
+  database: DatabaseAdapter | DeclarativeDbConfig;
   /**
    * Better Auth 原生数据库适配器（可选，高级用法）。
    *
-   * 【推荐】使用 PrismaAdapter({ prisma, provider: "postgresql" })
-   * 搭配 database 字段，SDK 会自动内部构造 better-auth 适配器，
-   * 无需设置此字段。
-   *
    * 仅在以下场景手动设置：
-   * - 使用非 Prisma 的 DatabaseAdapter（如 DrizzleAdapter）
+   * - 使用非 Pg 的 DatabaseAdapter（如 DrizzleAdapter）
    * - 需要接管 better-auth 适配器的全部配置
    *
    * @see database — 主适配器配置
@@ -218,24 +224,29 @@ export interface QuickAuthConfig {
  * 自动处理：数据库适配器连接、BusinessAccount 自动创建、
  * 账户解析器注册、角色解析器注册。
  *
- * 当 database 使用 PrismaAdapter 且提供 provider 参数时，
- * SDK 会自动内部构造 better-auth 原生适配器，无需手动设置
- * betterAuthDatabase。
- *
  * @example
  * ```ts
- * import { PrismaAdapter } from "changfeng-auth/adapters/prisma";
  * import { createQuickAuth } from "changfeng-auth-nextjs";
  *
  * export const auth = createQuickAuth({
- *   database: PrismaAdapter({ prisma, provider: "postgresql" }),
+ *   database: { url: process.env.DATABASE_URL },
  *   secret: process.env.BETTER_AUTH_SECRET!,
  *   baseUrl: process.env.BETTER_AUTH_URL!,
  * });
  * ```
  */
 export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
-  // 注册 AccountResolver
+  // === 解析 database 配置（统一为 DatabaseAdapter） ===
+
+  let database: DatabaseAdapter;
+
+  if (isDeclarativeDbConfig(config.database)) {
+    // v0.6.0 声明式配置：内置 pg 驱动
+    console.log("[changfeng-auth] 使用内置 PgAdapter（声明式配置）");
+    database = PgAdapter(config.database);
+  } else {
+    database = config.database;
+  }
   if (config.accountResolver) {
     setAccountResolver(config.accountResolver);
   }
@@ -246,7 +257,7 @@ export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
     autoCreateHooks.user = {
       create: {
         after: async (user: { id: string; email?: string }) => {
-          await config.database.create({
+          await database.create({
             model: "businessAccount",
             data: {
               authUserId: user.id,
@@ -291,24 +302,17 @@ export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
   // Priority:
   //   1. overrides.database — 用户显式设置，最高优先级
   //   2. betterAuthDatabase — 用户通过快捷字段设置
-  //   3. PrismaAdapter 自动检测 — 如果 database 是 PrismaAdapter 且含 provider
-  //   4. database 回退 — 其他类型的 DatabaseAdapter 直接透传
+  //   3. database 回退 — PgAdapter 或其他 DatabaseAdapter 直接透传
   if (!mergedOverrides.database) {
     if (config.betterAuthDatabase) {
       mergedOverrides.database = config.betterAuthDatabase;
-    } else if (getPrismaMeta(config.database)?._provider) {
-      const meta = getPrismaMeta(config.database)!;
-      // 自动构造 better-auth 原生适配器，零额外配置
-      mergedOverrides.database = prismaAdapter(meta._prisma as PrismaClient, {
-        provider: meta._provider as PrismaConfig["provider"],
-      });
     } else {
-      mergedOverrides.database = config.database as never;
+      mergedOverrides.database = database as never;
     }
   }
 
   return createAuth({
-    database: config.database,
+    database,
     secret: config.secret,
     baseUrl: config.baseUrl,
     session: config.session,

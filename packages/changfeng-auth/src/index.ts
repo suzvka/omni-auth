@@ -17,14 +17,18 @@ export type {
 export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "./errors";
 
 // 类型
-export type { AuthContext, Account, SocialAccountBrief, UserChannel } from "./types";
+export type { AuthContext, Account, PublicUser, SocialAccountBrief, UserChannel } from "./types";
 export type { AccountResolver } from "./core/resolver";
 export { setAccountResolver, getAccountResolver } from "./core/resolver";
 
 // 适配器接口
-export type { DatabaseAdapter } from "./adapters/database";
+export type { DatabaseAdapter, WhereCondition, WhereOperator, SearchCondition, OrderByCondition } from "./adapters/database";
 export type { RequestContext } from "./adapters/request";
 export { createRequestContext } from "./adapters/request";
+
+// 内置适配器
+export { PgAdapter } from "./builtin/pg/adapter";
+export type { PgAdapterOptions, PgAdapterInstance } from "./builtin/pg/adapter";
 
 // OAuth
 export type { OAuthProviderConfig, OAuthCallbackResult } from "./oauth/types";
@@ -57,7 +61,7 @@ export type { SessionInfo } from "./core/session";
 export type { UpdateProfileInput } from "./core/account";
 
 // RBAC
-export type { RoleResolver } from "./core/roles";
+export type { RoleResolver, DBApi } from "./core/roles";
 export { setRoleResolver, getRoleResolver, hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
 
 // 速率限制

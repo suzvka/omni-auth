@@ -4,7 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     client: "src/client.ts",
-    "adapters/prisma": "src/builtin/prisma/adapter.ts",
+    "adapters/pg": "src/builtin/pg/adapter.ts",
   },
   format: ["esm", "cjs"],
   dts: true,
@@ -13,7 +13,7 @@ export default defineConfig({
   clean: true,
   external: [
     "better-auth",
-    "@prisma/client",
+    "pg",
   ],
   target: "es2020",
 });

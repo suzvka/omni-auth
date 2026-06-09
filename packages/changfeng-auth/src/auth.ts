@@ -8,7 +8,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { createHmac } from "crypto";
 import type { DatabaseAdapter } from "./adapters/database";
 import type { RequestContext } from "./adapters/request";
-import type { AuthContext, Account, SocialAccountBrief, UserChannel } from "./types";
+import type { AuthContext, Account, PublicUser, SocialAccountBrief, UserChannel } from "./types";
 import type { AccountResolver } from "./core/resolver";
 import { getAccountResolver, setAccountResolver } from "./core/resolver";
 import { setRoleResolver } from "./core/roles";
@@ -91,6 +91,8 @@ export interface SignUpInput {
 export interface SignUpResult {
   userId: string;
   token: string | null;
+  /** 创建后的完整用户信息（v0.6.0 新增） */
+  user: PublicUser;
 }
 
 export interface SignInInput {
@@ -101,6 +103,8 @@ export interface SignInInput {
 export interface SignInResult {
   userId: string;
   token: string | null;
+  /** 登录后的完整用户信息（v0.6.0 新增） */
+  user: PublicUser;
 }
 
 // ----------------------------------------------------------
@@ -141,6 +145,8 @@ export interface ChannelAuthResult {
   userId: string;
   token: string | null;
   isNewUser: boolean;
+  /** 登录/注册后的完整用户信息（v0.6.0 新增） */
+  user: PublicUser;
   channel: {
     id: string;
     provider: string;
@@ -373,9 +379,13 @@ export class ChangfengAuth {
 
       publishAuditEvent({ action: "signUp", userId: result.user.id });
 
+      // 读取完整用户信息
+      const user = await this._readPublicUser(result.user.id);
+
       return {
         userId: result.user.id,
         token: result.token,
+        user,
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -389,9 +399,12 @@ export class ChangfengAuth {
 
       publishAuditEvent({ action: "signIn", userId: result.user.id });
 
+      const user = await this._readPublicUser(result.user.id);
+
       return {
         userId: result.user.id,
         token: result.token,
+        user,
       };
     } catch (err: unknown) {
       publishAuditEvent({
@@ -432,15 +445,19 @@ export class ChangfengAuth {
       } else {
         // 非密码凭证：调用者已自行验证，直接创建 session
         const token = await this._createSessionForUser(existingChannel.userId);
-        result = { userId: existingChannel.userId, token };
+        const existingUserForSession = await this._readPublicUser(existingChannel.userId);
+        result = { userId: existingChannel.userId, token, user: existingUserForSession };
       }
 
       publishAuditEvent({ action: "signIn", userId: result.userId });
+
+      const existingUser = await this._readPublicUser(result.userId);
 
       return {
         userId: result.userId,
         token: result.token,
         isNewUser: false,
+        user: existingUser,
         channel: {
           id: existingChannel.id,
           provider: existingChannel.provider,
@@ -494,10 +511,13 @@ export class ChangfengAuth {
 
     publishAuditEvent({ action: "signUp", userId: signUpResult.userId });
 
+    const newUser = await this._readPublicUser(signUpResult.userId);
+
     return {
       userId: signUpResult.userId,
       token: signUpResult.token,
       isNewUser: true,
+      user: newUser,
       channel: {
         id: updatedRecord.id as string,
         provider: input.provider,
@@ -606,6 +626,39 @@ export class ChangfengAuth {
     });
 
     return token;
+  }
+
+  /** 从数据库读取完整用户信息并转为 PublicUser */
+  private async _readPublicUser(userId: string): Promise<PublicUser> {
+    const record = await this.config.database.findOne({
+      model: "user",
+      where: [{ field: "id", value: userId }],
+    }) as Record<string, unknown> | null;
+
+    if (!record) {
+      // 兜底：用 ID 构造最小化对象
+      return {
+        id: userId,
+        name: "",
+        email: "",
+        emailVerified: false,
+        image: null,
+        role: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
+
+    return {
+      id: record.id as string,
+      name: (record.name as string) ?? "",
+      email: (record.email as string) ?? "",
+      emailVerified: (record.emailVerified as boolean) ?? false,
+      image: (record.image as string) ?? null,
+      role: (record.role as string) ?? null,
+      createdAt: record.createdAt as Date,
+      updatedAt: record.updatedAt as Date,
+    };
   }
 
   /**
@@ -854,7 +907,7 @@ export class ChangfengAuth {
         console.error("[getAuthContext] 查询社交账户失败:", err);
         return [] as SocialAccountDTO[];
       }),
-      resolveRoles(authUserId),
+      resolveRoles(authUserId, this.db),
     ]);
 
     // 分离通道（有效/占位）和社交账户
@@ -1049,10 +1102,14 @@ export class ChangfengAuth {
         adapter.create(params),
       updateOne: (params: Parameters<DatabaseAdapter["updateOne"]>[0]) =>
         adapter.updateOne(params),
+      updateMany: (params: Parameters<DatabaseAdapter["updateMany"]>[0]) =>
+        adapter.updateMany(params),
       deleteOne: (params: Parameters<DatabaseAdapter["deleteOne"]>[0]) =>
         adapter.deleteOne(params),
       deleteMany: (params: Parameters<DatabaseAdapter["deleteMany"]>[0]) =>
         adapter.deleteMany(params),
+      count: (params: Parameters<DatabaseAdapter["count"]>[0]) =>
+        adapter.count(params),
     };
   }
 
@@ -1063,20 +1120,27 @@ export class ChangfengAuth {
   get change() {
     const self = this;
     return {
-      /** 更新用户名（同步 user.name + businessAccount.displayName） */
-      async name(ctx: RequestContext, newName: string): Promise<void> {
+      /** 更新用户名（同步 user.name + businessAccount.displayName），返回更新后的用户 */
+      async name(ctx: RequestContext, newName: string): Promise<PublicUser> {
         if (!self._accountDeletion) throw new Error("账号管理不可用");
         await self._accountDeletion.updateProfile(ctx, { name: newName });
         const session = await self._getSession(ctx);
         if (session?.user?.id) {
           publishAuditEvent({ action: "changeName", userId: session.user.id });
+          return self._readPublicUser(session.user.id);
         }
+        throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
       },
 
-      /** 更新头像 */
-      async image(ctx: RequestContext, newImage: string): Promise<void> {
+      /** 更新头像，返回更新后的用户 */
+      async image(ctx: RequestContext, newImage: string): Promise<PublicUser> {
         if (!self._accountDeletion) throw new Error("账号管理不可用");
         await self._accountDeletion.updateProfile(ctx, { image: newImage });
+        const session = await self._getSession(ctx);
+        if (session?.user?.id) {
+          return self._readPublicUser(session.user.id);
+        }
+        throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
       },
 
       /**
@@ -1084,12 +1148,13 @@ export class ChangfengAuth {
        *
        * 唯一性校验 → socialAccount.providerOpenid 更新。
        * user.email 为 Better Auth 内部占位符，不做同步。
+       * 返回更新后的渠道信息及关联用户（v0.6.0）。
        */
       async channel(
         ctx: RequestContext,
         channelId: string,
         input: { identifier: string }
-      ): Promise<void> {
+      ): Promise<{ id: string; provider: string; providerOpenid: string; user: PublicUser }> {
         const session = await self._getSession(ctx);
         if (!session?.user?.id) {
           throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
@@ -1106,7 +1171,10 @@ export class ChangfengAuth {
         const provider = target.provider;
 
         // 标识符未变则跳过
-        if (oldIdentifier === input.identifier) return;
+        if (oldIdentifier === input.identifier) {
+          const user = await self._readPublicUser(userId);
+          return { id: channelId, provider, providerOpenid: oldIdentifier, user };
+        }
 
         // 唯一性校验
         const conflict = await self._socialService.findByProvider(
@@ -1134,6 +1202,9 @@ export class ChangfengAuth {
             newIdentifier: input.identifier,
           },
         });
+
+        const updatedUser = await self._readPublicUser(userId);
+        return { id: channelId, provider, providerOpenid: input.identifier, user: updatedUser };
       },
     };
   }

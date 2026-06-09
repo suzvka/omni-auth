@@ -125,7 +125,7 @@ export function createSessionManagement(deps: SessionManagementDeps) {
         model: "session",
         where: [
           { field: "userId", value: userId },
-          ...(currentToken ? [{ field: "token", value: currentToken, operator: "neq" }] : []),
+          ...(currentToken ? [{ field: "token", value: currentToken, operator: "neq" as const }] : []),
         ],
       });
 

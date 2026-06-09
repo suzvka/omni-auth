@@ -34,12 +34,11 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "changfeng-auth": "^0.5.0",
+    "changfeng-auth": "workspace:*",
     "next": ">=16"
   },
   "dependencies": {
-    "@better-auth/prisma-adapter": "^1.6.11",
-    "changfeng-auth": "^0.5.0"
+    "changfeng-auth": "workspace:*"
   },
   "devDependencies": {
     "next": "16.2.6",

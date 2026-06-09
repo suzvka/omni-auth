@@ -1,6 +1,6 @@
 {
   "name": "changfeng-auth",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Changfeng authentication SDK — framework-agnostic, built on Better Auth",
   "author": "Changfeng Team",
   "license": "MIT",
@@ -23,10 +23,10 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
-    "./adapters/prisma": {
-      "types": "./dist/adapters/prisma.d.ts",
-      "import": "./dist/adapters/prisma.js",
-      "require": "./dist/adapters/prisma.cjs"
+    "./adapters/pg": {
+      "types": "./dist/adapters/pg.d.ts",
+      "import": "./dist/adapters/pg.js",
+      "require": "./dist/adapters/pg.cjs"
     },
     "./client": {
       "types": "./dist/client.d.ts",
@@ -36,11 +36,10 @@
   },
   "files": [
     "dist",
-    "prisma/schema.prisma",
     "bin"
   ],
   "bin": {
-    "changfeng-auth": "./bin/init.mjs"
+    "changfeng-auth-db": "./bin/db-push.mjs"
   },
   "scripts": {
     "build": "tsup",
@@ -53,11 +52,17 @@
   "peerDependencies": {
     "better-auth": "^1"
   },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "better-auth": "^1"
   },
   "devDependencies": {
-    "@prisma/client": "^6",
+    "@types/pg": "^8",
+    "pg": "^8",
     "tsup": "^8",
     "typescript": "^5",
     "vitest": "^4.1.7"
