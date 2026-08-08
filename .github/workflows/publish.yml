@@ -1,0 +1,41 @@
+name: Publish Packages
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+# OIDC 核心：id-token 写权限，允许 Actions 向 npm 证明自身身份
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm -r --filter omni-auth --filter omni-auth-nextjs build
+
+      # 先发布 omni-auth，再发布 omni-auth-nextjs（后者 workspace 依赖前者，
+      # pnpm publish 会自动将 workspace:* 改写为实际版本号）
+      - name: Publish omni-auth
+        run: pnpm --filter omni-auth publish --access public --no-git-checks
+
+      - name: Publish omni-auth-nextjs
+        run: pnpm --filter omni-auth-nextjs publish --access public --no-git-checks
