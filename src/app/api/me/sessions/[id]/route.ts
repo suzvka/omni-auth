@@ -4,8 +4,8 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { nextjsRequestContext } from "changfeng-auth-nextjs";
-import { UnauthorizedError } from "changfeng-auth";
+import { nextjsRequestContext } from "omni-auth-nextjs";
+import { UnauthorizedError } from "omni-auth";
 
 export async function DELETE(
   _request: Request,

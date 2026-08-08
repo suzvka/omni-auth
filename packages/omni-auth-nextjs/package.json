@@ -1,18 +1,18 @@
 {
-  "name": "changfeng-auth-nextjs",
+  "name": "omni-auth-nextjs",
   "version": "0.6.1",
-  "description": "Next.js integration layer for changfeng-auth SDK",
-  "author": "Changfeng Team",
+  "description": "Next.js integration layer for omni-auth SDK",
+  "author": "Omni Auth Contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/suzvka/ChangfengUserCenter.git",
-    "directory": "packages/changfeng-auth-nextjs"
+    "url": "https://github.com/suzvka/omni-auth.git",
+    "directory": "packages/omni-auth-nextjs"
   },
   "bugs": {
-    "url": "https://github.com/suzvka/ChangfengUserCenter/issues"
+    "url": "https://github.com/suzvka/omni-auth/issues"
   },
-  "homepage": "https://github.com/suzvka/ChangfengUserCenter#readme",
+  "homepage": "https://github.com/suzvka/omni-auth#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -34,11 +34,11 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "changfeng-auth": "workspace:*",
+    "omni-auth": "workspace:*",
     "next": ">=16"
   },
   "dependencies": {
-    "changfeng-auth": "workspace:*"
+    "omni-auth": "workspace:*"
   },
   "devDependencies": {
     "next": "16.2.6",

@@ -1,9 +1,13 @@
-// changfeng-auth — 框架无关认证 SDK
+// omni-auth — 框架无关认证 SDK
 // ============================================================
 
-export { createAuth, ChangfengAuth } from "./auth";
+export { createAuth, OmniAuth } from "./auth";
+
+/** @deprecated 0.6.0 起更名为 OmniAuth，此别名仅作过渡，后续版本将移除 */
+export { OmniAuth as ChangfengAuth } from "./auth";
+
 export type {
-  ChangfengAuthConfig,
+  OmniAuthConfig,
   SignUpInput,
   SignUpResult,
   SignInInput,
@@ -12,6 +16,9 @@ export type {
   ChannelAuthResult,
   SignUpWithSocialInput,
 } from "./auth";
+
+/** @deprecated 0.6.0 起更名为 OmniAuthConfig，此别名仅作过渡，后续版本将移除 */
+export type { OmniAuthConfig as ChangfengAuthConfig } from "./auth";
 
 // 错误
 export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "./errors";

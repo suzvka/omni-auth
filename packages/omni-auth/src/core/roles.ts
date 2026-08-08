@@ -11,7 +11,7 @@
 import { UnauthorizedError } from "../errors";
 import type { DatabaseAdapter } from "../adapters/database";
 
-/** 对外暴露的 DBApi 子集（与 ChangfengAuth.db 返回类型一致） */
+/** 对外暴露的 DBApi 子集（与 OmniAuth.db 返回类型一致） */
 export interface DBApi {
   findOne(params: { model: string; where: { field: string; value: unknown; operator?: string }[] }): Promise<unknown | null>;
   findMany(params: { model: string; where?: { field: string; value: unknown; operator?: string }[]; search?: { fields: string[]; value: string }; orderBy?: { field: string; direction: "asc" | "desc" }; limit?: number; offset?: number }): Promise<unknown[]>;
@@ -47,7 +47,7 @@ export function getRoleResolver(): RoleResolver | null {
  * 解析用户角色。
  *
  * @param authUserId 用户 ID
- * @param db         可选的数据库操作接口（由 ChangfengAuth 内部传入，消除循环依赖）
+ * @param db         可选的数据库操作接口（由 OmniAuth 内部传入，消除循环依赖）
  */
 export async function resolveRoles(authUserId: string, db?: DBApi): Promise<string[]> {
   if (!registeredRoleResolver) return [];

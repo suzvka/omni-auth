@@ -11,7 +11,7 @@
 //      export const middleware = createEdgeMiddleware();
 //
 // 2. createMiddleware（高级）— 仅 Node.js Runtime
-//    通过 ChangfengAuth 实例做完整 session 校验 + 角色检查，
+//    通过 OmniAuth 实例做完整 session 校验 + 角色检查，
 //    需在 middleware.ts 顶部添加: export const runtime = "nodejs"。
 //    适用于需要中间件层做角色/权限判断的场景。
 //
@@ -27,8 +27,8 @@
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import type { ChangfengAuth } from "changfeng-auth";
-import { createRequestContext } from "changfeng-auth";
+import type { OmniAuth } from "omni-auth";
+import { createRequestContext } from "omni-auth";
 
 // ============================================================
 // 类型定义
@@ -62,7 +62,7 @@ export interface EdgeMiddlewareConfig {
   onError?: (req: NextRequest, error: Error) => Response | void;
 }
 
-/** Node.js 中间件配置（需 ChangfengAuth 实例，仅 Node.js Runtime） */
+/** Node.js 中间件配置（需 OmniAuth 实例，仅 Node.js Runtime） */
 export interface MiddlewareConfig {
   /**
    * 需要登录才能访问的路径前缀。
@@ -118,7 +118,7 @@ function logMiddlewareError(
   context: string
 ): void {
   console.error(
-    `[changfeng-auth middleware] ${context}`,
+    `[omni-auth middleware] ${context}`,
     JSON.stringify({
       pathname: req.nextUrl.pathname,
       method: req.method,
@@ -147,7 +147,7 @@ function logMiddlewareError(
  * @example
  * ```ts
  * // middleware.ts
- * import { createEdgeMiddleware } from "changfeng-auth-nextjs";
+ * import { createEdgeMiddleware } from "omni-auth-nextjs";
  *
  * export const middleware = createEdgeMiddleware();
  *
@@ -258,7 +258,7 @@ export function createEdgeMiddleware(config: EdgeMiddlewareConfig = {}) {
  *
  * **需要 middleware.ts 顶部声明 `export const runtime = "nodejs"`。**
  *
- * 通过 ChangfengAuth 实例做完整 session 校验 + 角色检查 + 业务账户查询，
+ * 通过 OmniAuth 实例做完整 session 校验 + 角色检查 + 业务账户查询，
  * 将结果注入 x-auth-* headers 供下游使用。
  *
  * 适用场景：需要在中间件层做精细化的角色/权限判断。
@@ -269,7 +269,7 @@ export function createEdgeMiddleware(config: EdgeMiddlewareConfig = {}) {
  * // middleware.ts
  * export const runtime = "nodejs";
  *
- * import { createMiddleware } from "changfeng-auth-nextjs";
+ * import { createMiddleware } from "omni-auth-nextjs";
  * import { auth } from "@/lib/auth";
  *
  * export const middleware = createMiddleware(auth, {
@@ -278,7 +278,7 @@ export function createEdgeMiddleware(config: EdgeMiddlewareConfig = {}) {
  * });
  * ```
  */
-export function createMiddleware(auth: ChangfengAuth, config: MiddlewareConfig = {}) {
+export function createMiddleware(auth: OmniAuth, config: MiddlewareConfig = {}) {
   const {
     protectedPaths = ["/"],
     publicPaths = [
@@ -390,6 +390,6 @@ export function createMiddleware(auth: ChangfengAuth, config: MiddlewareConfig =
  *             如果仍需要完整 session + 角色校验，请使用 createMiddleware(auth, config)
  *             并在 middleware.ts 中声明 `export const runtime = "nodejs"`。
  */
-export function createDefaultMiddleware(auth: ChangfengAuth) {
+export function createDefaultMiddleware(auth: OmniAuth) {
   return createMiddleware(auth, {});
 }

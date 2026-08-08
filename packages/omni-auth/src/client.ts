@@ -5,8 +5,8 @@
 // 和简化 API。无需手写 fetch 调用。
 //
 // 使用方式：
-//   import { createChangfengClient } from "changfeng-auth/client";
-//   const { signIn, signUp, signOut, useSession } = createChangfengClient();
+//   import { createOmniClient } from "omni-auth/client";
+//   const { signIn, signUp, signOut, useSession } = createOmniClient();
 // ============================================================
 
 import { createAuthClient } from "better-auth/react";
@@ -33,7 +33,7 @@ export interface SignUpParams {
   name: string;
 }
 
-export interface ChangfengClient {
+export interface OmniClient {
   /** React hook：获取当前 session */
   useSession: ReturnType<typeof createAuthClient>["useSession"];
   /** 邮箱登录 */
@@ -52,7 +52,7 @@ export interface ChangfengClient {
   _raw: ReturnType<typeof createAuthClient>;
 }
 
-export function createChangfengClient(baseURL?: string): ChangfengClient {
+export function createOmniClient(baseURL?: string): OmniClient {
   const authClient = createAuthClient(
     baseURL ? { baseURL } : undefined
   );

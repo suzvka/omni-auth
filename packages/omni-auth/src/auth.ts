@@ -1,5 +1,5 @@
 // ============================================================
-// ChangfengAuth — SDK 主类
+// OmniAuth — SDK 主类
 //
 // 完全封装 Better Auth，提供框架无关的认证 API。
 // ============================================================
@@ -45,7 +45,7 @@ export type BetterAuthInstance = ReturnType<typeof betterAuth>;
 // SDK 配置
 // ----------------------------------------------------------
 
-export interface ChangfengAuthConfig {
+export interface OmniAuthConfig {
   /** 数据库适配器（必填） */
   database: DatabaseAdapter;
   /** Better Auth 密钥 */
@@ -173,11 +173,11 @@ export interface SignUpWithSocialInput {
 }
 
 // ----------------------------------------------------------
-// ChangfengAuth 主类
+// OmniAuth 主类
 // ----------------------------------------------------------
 
-export class ChangfengAuth {
-  private config: ChangfengAuthConfig;
+export class OmniAuth {
+  private config: OmniAuthConfig;
   private _betterAuth: BetterAuthInstance;
   private _socialService: ReturnType<typeof createSocialService>;
   private _emailVerification: ReturnType<typeof createEmailVerification> | null = null;
@@ -188,7 +188,7 @@ export class ChangfengAuth {
   /** onSessionExpired 回调（Better Auth 无内置 hook，由 SDK 方法触发） */
   private _onSessionExpired: ((payload: SessionExpiredPayload) => void | Promise<void>) | null = null;
 
-  constructor(config: ChangfengAuthConfig) {
+  constructor(config: OmniAuthConfig) {
     this.config = config;
 
     // 注册 AccountResolver（如果提供）
@@ -1238,6 +1238,6 @@ export class ChangfengAuth {
 // 工厂函数
 // ----------------------------------------------------------
 
-export function createAuth(config: ChangfengAuthConfig): ChangfengAuth {
-  return new ChangfengAuth(config);
+export function createAuth(config: OmniAuthConfig): OmniAuth {
+  return new OmniAuth(config);
 }

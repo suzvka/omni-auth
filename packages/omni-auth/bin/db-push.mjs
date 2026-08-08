@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // ============================================================
-// changfeng-auth db:push — 声明式数据库 Schema 同步 CLI
+// omni-auth db:push — 声明式数据库 Schema 同步 CLI
 //
 // 用法：
-//   npx changfeng-auth db:push
-//   DATABASE_URL=postgres://... npx changfeng-auth db:push
+//   npx omni-auth db:push
+//   DATABASE_URL=postgres://... npx omni-auth db:push
 //
 // 行为：
 //   - 读取 DATABASE_URL 环境变量
@@ -21,7 +21,7 @@
 import { Pool } from "pg";
 
 // ============================================================
-// Schema Definition（与 Better Auth + changfeng-auth 保持一致）
+// Schema Definition（与 Better Auth + omni-auth 保持一致）
 // ============================================================
 
 const TABLES = [
@@ -122,11 +122,11 @@ async function main() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     console.error("❌ 请设置 DATABASE_URL 环境变量");
-    console.error("   示例: DATABASE_URL=postgres://user:pass@localhost:5432/mydb npx changfeng-auth db:push");
+    console.error("   示例: DATABASE_URL=postgres://user:pass@localhost:5432/mydb npx omni-auth db:push");
     process.exit(1);
   }
 
-  console.log("🔧 changfeng-auth db:push v0.6.1");
+  console.log("🔧 omni-auth db:push v0.6.1");
   console.log(`   连接: ${databaseUrl.replace(/\/\/.*@/, "//***@")}`);
   console.log("");
 

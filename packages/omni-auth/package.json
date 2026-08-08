@@ -1,18 +1,18 @@
 {
-  "name": "changfeng-auth",
+  "name": "omni-auth",
   "version": "0.6.1",
-  "description": "Changfeng authentication SDK — framework-agnostic, built on Better Auth",
-  "author": "Changfeng Team",
+  "description": "OmniAuth — omnichannel authentication SDK, framework-agnostic, built on Better Auth",
+  "author": "Omni Auth Contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/suzvka/ChangfengUserCenter.git",
-    "directory": "packages/changfeng-auth"
+    "url": "https://github.com/suzvka/omni-auth.git",
+    "directory": "packages/omni-auth"
   },
   "bugs": {
-    "url": "https://github.com/suzvka/ChangfengUserCenter/issues"
+    "url": "https://github.com/suzvka/omni-auth/issues"
   },
-  "homepage": "https://github.com/suzvka/ChangfengUserCenter#readme",
+  "homepage": "https://github.com/suzvka/omni-auth#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -39,7 +39,7 @@
     "bin"
   ],
   "bin": {
-    "changfeng-auth-db": "./bin/db-push.mjs"
+    "omni-auth": "./bin/db-push.mjs"
   },
   "scripts": {
     "build": "tsup",
@@ -50,7 +50,7 @@
     "test:watch": "vitest"
   },
   "peerDependencies": {
-    "better-auth": "^1"
+    "better-auth": "^1.6.26"
   },
   "peerDependenciesMeta": {
     "pg": {
@@ -58,7 +58,7 @@
     }
   },
   "dependencies": {
-    "better-auth": "^1"
+    "better-auth": "^1.6.26"
   },
   "devDependencies": {
     "@types/pg": "^8",
@@ -71,6 +71,8 @@
     "auth",
     "authentication",
     "oauth",
-    "better-auth"
+    "better-auth",
+    "omnichannel",
+    "channel-parity"
   ]
 }

@@ -1,32 +1,32 @@
 import { headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import type { ChangfengAuth, RequestContext, AuthContext } from "changfeng-auth";
+import type { OmniAuth, RequestContext, AuthContext } from "omni-auth";
 import {
   createRequestContext,
   createAuth,
   setAccountResolver,
   PgAdapter,
-} from "changfeng-auth";
-import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver } from "changfeng-auth";
+} from "omni-auth";
+import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver } from "omni-auth";
 import type { BetterAuthOptions } from "better-auth";
 import { toBetterAuthAdapter } from "./adapter-bridge";
 
 // ============================================================
-// 统一导出：所有常用类型只需从 changfeng-auth-nextjs 导入
+// 统一导出：所有常用类型只需从 omni-auth-nextjs 导入
 // ============================================================
 
 export { createRequestContext };
 
 // 核心类型
-export type { AuthContext, Account, SocialAccountBrief } from "changfeng-auth";
-export type { AccountResolver } from "changfeng-auth";
-export type { SocialAccountDTO } from "changfeng-auth";
-export type { TokenRefresher, TokenRefreshResult, SocialAccountRef } from "changfeng-auth";
-export type { OAuthProviderConfig, OAuthCallbackResult } from "changfeng-auth";
+export type { AuthContext, Account, SocialAccountBrief } from "omni-auth";
+export type { AccountResolver } from "omni-auth";
+export type { SocialAccountDTO } from "omni-auth";
+export type { TokenRefresher, TokenRefreshResult, SocialAccountRef } from "omni-auth";
+export type { OAuthProviderConfig, OAuthCallbackResult } from "omni-auth";
 
 // 错误类
-export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "changfeng-auth";
+export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "omni-auth";
 
 /** 从 Next.js headers() 构建 RequestContext */
 export function nextjsRequestContext(
@@ -44,7 +44,7 @@ export function nextjsRequestContext(
 }
 
 /** 创建 Next.js catch-all API 路由处理器 */
-export function createRouteHandlers(auth: ChangfengAuth) {
+export function createRouteHandlers(auth: OmniAuth) {
   const handler = auth.getBetterAuthHandler();
 
   const wrapHandler = async (req: NextRequest): Promise<Response> => {
@@ -53,7 +53,7 @@ export function createRouteHandlers(auth: ChangfengAuth) {
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
       const message = error.message || "Unknown auth handler error";
-      console.error("[changfeng-auth createRouteHandlers]", error.name, message);
+      console.error("[omni-auth createRouteHandlers]", error.name, message);
 
       const isProduction = process.env.NODE_ENV === "production";
       return NextResponse.json(
@@ -86,7 +86,7 @@ export interface NextjsRouteHelpers {
  * 将原来 5 行 boilerplate：
  * ```ts
  * import { auth } from "@/lib/auth";
- * import { nextjsRequestContext } from "changfeng-auth-nextjs";
+ * import { nextjsRequestContext } from "omni-auth-nextjs";
  * import { headers } from "next/headers";
  * const ctx = await auth.requireContext(nextjsRequestContext(await headers()));
  * ```
@@ -97,7 +97,7 @@ export interface NextjsRouteHelpers {
  * const { authUserId } = await routeHelpers.requireContext();
  * ```
  */
-export function createRouteHelpers(auth: ChangfengAuth): NextjsRouteHelpers {
+export function createRouteHelpers(auth: OmniAuth): NextjsRouteHelpers {
   return {
     async getContext(): Promise<AuthContext> {
       return auth.getContext(nextjsRequestContext(await headers()));
@@ -108,7 +108,7 @@ export function createRouteHelpers(auth: ChangfengAuth): NextjsRouteHelpers {
   };
 }
 
-// 重新导出 middleware（兼容 import from "changfeng-auth-nextjs"）
+// 重新导出 middleware（兼容 import from "omni-auth-nextjs"）
 export { createMiddleware, createDefaultMiddleware, createEdgeMiddleware } from "./middleware";
 export type { MiddlewareConfig, EdgeMiddlewareConfig } from "./middleware";
 
@@ -127,7 +127,7 @@ interface OAuthResult { token: string | null; userId: string; isNewUser: boolean
  * Better Auth 的签名细节，彻底消除抽象泄漏。
  */
 export function oauthCookieResponse(
-  auth: ChangfengAuth,
+  auth: OmniAuth,
   result: OAuthResult,
   body?: Record<string, unknown>
 ): NextResponse {
@@ -227,7 +227,7 @@ export interface QuickAuthConfig {
  *
  * @example
  * ```ts
- * import { createQuickAuth } from "changfeng-auth-nextjs";
+ * import { createQuickAuth } from "omni-auth-nextjs";
  *
  * export const auth = createQuickAuth({
  *   database: { url: process.env.DATABASE_URL },
@@ -236,14 +236,14 @@ export interface QuickAuthConfig {
  * });
  * ```
  */
-export function createQuickAuth(config: QuickAuthConfig): ChangfengAuth {
+export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
   // === 解析 database 配置（统一为 DatabaseAdapter） ===
 
   let database: DatabaseAdapter;
 
   if (isDeclarativeDbConfig(config.database)) {
     // v0.6.0 声明式配置：内置 pg 驱动
-    console.log("[changfeng-auth] 使用内置 PgAdapter（声明式配置）");
+    console.log("[omni-auth] 使用内置 PgAdapter（声明式配置）");
     database = PgAdapter(config.database);
   } else {
     database = config.database;

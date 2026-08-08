@@ -14,7 +14,7 @@
 import { randomBytes } from "crypto";
 
 /** 合成邮箱域名（不对外暴露） */
-export const SYNTHETIC_EMAIL_DOMAIN = "@phone.changfeng.internal";
+export const SYNTHETIC_EMAIL_DOMAIN = "@phone.omni.internal";
 
 /** 合成邮箱前缀 */
 const SYNTHETIC_PREFIX = "phone+";

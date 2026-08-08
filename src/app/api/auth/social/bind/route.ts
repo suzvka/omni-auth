@@ -4,8 +4,8 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { nextjsRequestContext } from "changfeng-auth-nextjs";
-import { SocialAccountConflictError } from "changfeng-auth";
+import { nextjsRequestContext } from "omni-auth-nextjs";
+import { SocialAccountConflictError } from "omni-auth";
 
 export async function POST(request: Request) {
   try {

@@ -1,5 +1,5 @@
 {
-  "name": "changfeng-user-center",
+  "name": "omni-user-center",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,14 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "build:packages": "pnpm -r --filter changfeng-auth --filter changfeng-auth-nextjs build",
-    "publish:packages": "pnpm -r --filter changfeng-auth --filter changfeng-auth-nextjs publish --access public"
+    "build:packages": "pnpm -r --filter omni-auth --filter omni-auth-nextjs build",
+    "publish:packages": "pnpm -r --filter omni-auth --filter omni-auth-nextjs publish --access public"
   },
   "dependencies": {
     "@prisma/client": "^6",
-    "better-auth": "^1",
-    "changfeng-auth": "workspace:*",
-    "changfeng-auth-nextjs": "workspace:*",
+    "better-auth": "^1.6.26",
+    "omni-auth": "workspace:*",
+    "omni-auth-nextjs": "workspace:*",
     "next": "16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4"

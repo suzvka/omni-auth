@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.6.0 — 项目更名为 OmniAuth
+
+### 概述
+
+本版本将项目从 `changfeng-user-center` 正式更名为独立的开源项目 **OmniAuth**，不再与公司名绑定。
+
+### 包名变更
+
+| 旧包名 | 新包名 |
+| --- | --- |
+| `changfeng-auth` | `omni-auth` |
+| `changfeng-auth-nextjs` | `omni-auth-nextjs` |
+| 根项目 `changfeng-user-center` | `omni-user-center` |
+
+`omni-auth-nextjs` 对 `omni-auth` 的依赖使用 `workspace:*` 协议（新包名未发布前不可用 npm registry 版本号）。
+
+### 公共 API 变更
+
+| 旧名称 | 新名称 | 处理方式 |
+| --- | --- | --- |
+| `ChangfengAuth` | `OmniAuth` | 旧名以 `@deprecated` alias 保留过渡 |
+| `ChangfengAuthConfig` | `OmniAuthConfig` | 旧名以 `@deprecated` alias 保留过渡 |
+| `createChangfengClient` | `createOmniClient` | 直接改名，无 alias |
+| `ChangfengClient` | `OmniClient` | 直接改名，无 alias |
+
+### 数据层变更
+
+| 项目 | 旧值 | 新值 |
+| --- | --- | --- |
+| 数据库名 | `changfeng_user_center` | `omni_user_center` |
+| 合成邮箱占位域 | `@phone.changfeng.internal` | `@phone.omni.internal` |
+
+### 其他变更
+
+- CLI bin 名：`changfeng-auth-db` → `omni-auth`（`npx omni-auth db:push`）
+- 日志前缀：`[changfeng-auth ...]` → `[omni-auth ...]`
+- package.json author 改为 `Omni Auth Contributors`，仓库指向 `https://github.com/suzvka/omni-auth`
+- better-auth 统一升级至 1.6.26（避免旧 lockfile 中 1.6.14 的 kysely 导入兼容问题）
+
+### 迁移说明
+
+1. 更新依赖：`pnpm add omni-auth omni-auth-nextjs`（或手动改 package.json 后 `pnpm install`）
+2. 代码导入：`from "changfeng-auth"` → `from "omni-auth"`，`from "changfeng-auth-nextjs"` → `from "omni-auth-nextjs"`
+3. 类名：`new ChangfengAuth(...)` → `new OmniAuth(...)`（过渡期内旧名仍可用，但会触发 deprecation 警告）
+4. 数据库：bootstrap 会自动创建 `omni_user_center`；旧库 `changfeng_user_center` 需手动迁移数据
+5. 合成邮箱域变化影响存量用户登录，需同步处理 `user.email` 占位值
+
+---
+
 ## v0.5.0 — 渠道平权架构升级
 
 ### 核心理念变更

@@ -3,7 +3,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { oauthCookieResponse } from "changfeng-auth-nextjs";
+import { oauthCookieResponse } from "omni-auth-nextjs";
 
 export async function POST(
   request: Request,

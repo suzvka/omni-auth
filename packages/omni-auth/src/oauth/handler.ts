@@ -139,7 +139,7 @@ export function createOAuthHandler(deps: {
   };
 }
 
-// 默认全局 handler（向后兼容，由 ChangfengAuth 初始化时注入依赖）
+// 默认全局 handler（向后兼容，由 OmniAuth 初始化时注入依赖）
 let globalHandler: ReturnType<typeof createOAuthHandler> | null = null;
 
 export function setOAuthHandler(handler: ReturnType<typeof createOAuthHandler>): void {
@@ -152,7 +152,7 @@ export async function handleOAuthCallback(
   redirectUri: string
 ): Promise<OAuthCallbackResult> {
   if (!globalHandler) {
-    throw new Error("OAuth handler 未初始化。请先创建 ChangfengAuth 实例。");
+    throw new Error("OAuth handler 未初始化。请先创建 OmniAuth 实例。");
   }
   return globalHandler(provider, code, redirectUri);
 }

@@ -4,8 +4,8 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { nextjsRequestContext } from "changfeng-auth-nextjs";
-import { UnauthorizedError, InvalidPasswordError } from "changfeng-auth";
+import { nextjsRequestContext } from "omni-auth-nextjs";
+import { UnauthorizedError, InvalidPasswordError } from "omni-auth";
 
 export async function PUT(request: Request) {
   try {

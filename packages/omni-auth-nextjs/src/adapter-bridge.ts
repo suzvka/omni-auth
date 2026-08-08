@@ -1,9 +1,9 @@
-import type { DatabaseAdapter, WhereCondition } from "changfeng-auth";
+import type { DatabaseAdapter, WhereCondition } from "omni-auth";
 
 // ============================================================
 // Better Auth CustomAdapter 桥接层
 //
-// 将 ChangfengAuth 的 DatabaseAdapter 包装为 Better Auth 期望的
+// 将 OmniAuth 的 DatabaseAdapter 包装为 Better Auth 期望的
 // CustomAdapter 接口。运行时核心差异：
 //   1. 方法名：BA 用 update / delete，我们用 updateOne / deleteOne
 //   2. findMany 排序：BA 用 sortBy，我们用 orderBy
@@ -23,7 +23,7 @@ interface BAWhere {
 }
 
 /**
- * 将 Better Auth 的 Where 转换为 ChangfengAuth 的 WhereCondition。
+ * 将 Better Auth 的 Where 转换为 OmniAuth 的 WhereCondition。
  *
  * 差异处理：
  * - operator "ne" → "neq"
@@ -46,12 +46,12 @@ function mapWhere(baWhere: BAWhere[]): WhereCondition[] {
  * 返回的对象在运行时满足 Better Auth 的 `CustomAdapter` 接口，
  * 可安全地传入 `BetterAuthOptions.database`。
  *
- * @param db ChangfengAuth 的 DatabaseAdapter 实例
+ * @param db OmniAuth 的 DatabaseAdapter 实例
  * @returns 兼容 Better Auth 的 adapter 对象
  */
 export function toBetterAuthAdapter(db: DatabaseAdapter): Record<string, unknown> {
   return {
-    id: "changfeng-pg",
+    id: "omni-pg",
 
     // ---- create ----
     create: async ({

@@ -10,7 +10,7 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   external: [
-    "changfeng-auth",
+    "omni-auth",
     "next",
     "next/headers",
     "next/server",
