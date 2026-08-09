@@ -39,7 +39,7 @@
     "bin"
   ],
   "bin": {
-    "omni-auth": "./bin/db-push.mjs"
+    "omni-auth": "bin/db-push.mjs"
   },
   "scripts": {
     "build": "tsup",
