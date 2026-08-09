@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/suzvka/omni-auth.git",
+    "url": "git+https://github.com/suzvka/omni-auth.git",
     "directory": "packages/omni-auth-nextjs"
   },
   "bugs": {
