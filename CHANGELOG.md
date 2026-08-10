@@ -1,42 +1,45 @@
 # Changelog
 
-## v0.6.4 — 登录密码校验修复（Better Auth join 支持）
+## v0.6.4 — 登录密码校验修复（Better Auth join 支持 + PostgreSQL 列名大小写）
 
-### 缺陷修复
+### 缺陷修复（omni-auth-nextjs 0.6.4）
 
-#### 注册成功但登录永远失败：Invalid email or password
+#### 注册成功但登录永远失败：Invalid email or password（join 被忽略）
 
-**问题根因**：better-auth 1.6.x 的密码架构——**密码 hash 存储在 `account` 表**（注册时通过 `linkAccount` 写入 providerId="credential" 的记录），user 表不再存密码。登录时通过 `adapter.findOne({ model: "user", join: { account: true } })` 的 **join 查询**带出账户记录再校验密码。omni-auth-nextjs 的适配器桥接层此前**忽略了 join 参数**，导致：
+**问题根因**：better-auth 1.6.x 的密码架构——**密码 hash 存储在 `account` 表**（注册时通过 `linkAccount` 写入 providerId="credential" 的记录），user 表不再存密码。登录时通过 `adapter.findOne({ model: "user", join: { account: true } })` 的 **join 查询**带出账户记录再校验密码。omni-auth-nextjs 的适配器桥接层此前**忽略了 join 参数**，导致登录时 `accounts` 恒为空、密码 hash 读取不到。
 
-- 登录时 `accounts` 恒为空 → 密码 hash 读取不到 → better-auth 抛出 `Invalid email or password`（统一错误信息，防用户枚举）
-- `getSession` 的 `session join user` 同样失效 → 登录后无法还原用户信息
+**修复方案**：`toBetterAuthAdapter` 的 `findOne` / `findMany` 实现完整 join 支持（正向：`session.userId → user`；反向：`user ← account.userId`），并新增 signUp → signIn 全链路集成测试。
 
-**修复方案**：`toBetterAuthAdapter` 的 `findOne` / `findMany` 实现完整 join 支持：
+### 缺陷修复（omni-auth 0.6.4）
 
-- **正向 join**：主记录含 `${model}Id` 外键（如 `session.userId → user`），查询单条记录
-- **反向 join**：被 join 模型通过 `${hostModel}Id` 引用主记录（如 `user ← account.userId`），查询多条记录
+#### join 修复后仍失败：Credential account not found（PostgreSQL 列名大小写）
 
-覆盖场景：邮箱密码登录（user join account）、getSession / 会话列表（session join user）、账户查询（account join user），以及组织类插件的 join（member/organization/team 等）。
+**问题根因**：PostgreSQL 将**未加引号的标识符折叠为小写**（`providerId` → `providerid`）。PgAdapter 此前仅对保留字加引号，导致：
 
-**影响范围**：`omni-auth-nextjs` 的 `createQuickAuth` 全部用户（凡使用 better-auth 1.6.x 邮箱密码登录均受影响）。
+- 写入：`INSERT INTO account (providerId, ...)` → 折叠为小写列（与旧版未引号建表的小写列匹配，写入成功）
+- 读取：`SELECT *` 返回**全小写 key**（providerid、userid、password）→ better-auth 的 `transformOutput` 按驼峰字段名精确匹配 → 字段全部丢失 → 登录判定 `providerId === "credential"` 失败 → `Credential account not found`
 
-### 内部改进
+**修复方案**：
 
-- 新增集成测试（内存数据库全链路）：signUp 写入 account 表（providerId=credential）、**signUp → signIn 成功**（核心回归）、错误密码拒绝、getSession 还原完整 user
-- 测试前置确认：`signUp` 的密码 hash 确实写入 `account` 表（与测试报告"account 无记录"现象对照，用于排查用户注册链路）
+1. **PgAdapter 所有标识符统一加双引号**（`"providerId"`），读写双向保持驼峰大小写，与 db:push / schema 同步创建的驼峰列完全对齐
+2. **db:push / 应用内 schema 同步自动修正存量小写列**：检测到小写变体列（`providerid`）时执行 `ALTER TABLE ... RENAME COLUMN`（保数据，不产生新旧列并存）
+
+**存量库迁移**（一次性）：
+
+```bash
+# 旧版未引号建表产生的全小写列会自动重命名为驼峰（幂等，可重复执行）
+npx omni-auth db:push
+```
+
+或应用内同步（AUTO_SYNC_DB=true 时启动自动执行）。数据不丢失；RENAME COLUMN 后 pg 自动更新相关约束/索引。
+
+**影响范围**：`omni-auth` 的 `PgAdapter` 全部用户（含 `createQuickAuth` 声明式配置路径）；同时修复了业务层读取 businessAccount / socialAccount 驼峰字段（authUserId 等）的问题。
 
 ### 升级说明
 
-1. 更新依赖：`pnpm add omni-auth-nextjs@0.6.4`
-2. **无破坏性变更**。
-3. 若升级后登录仍报 `Invalid email or password`，请检查 `account` 表是否存在 providerId='credential' 的记录：
-
-```sql
-SELECT id, "userId", "providerId", "accountId", password IS NOT NULL AS has_hash
-FROM account WHERE "providerId" = 'credential';
-```
-
-   若为空，说明注册流程未经过 better-auth 的 `signUpEmail`（自定义注册路由可能绕过了 SDK），需改用 `auth.signUp()` / `authenticateChannel()`。
+1. 更新依赖：`pnpm add omni-auth@0.6.4 omni-auth-nextjs@0.6.4`
+2. **存量数据库执行一次 `npx omni-auth db:push`**（自动修正列名大小写）
+3. 无其他破坏性变更
 
 ---
 

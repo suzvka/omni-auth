@@ -332,7 +332,39 @@ export async function ensureDatabaseSchema(
         const existing = existingCols.get(col.name);
 
         if (!existing) {
-          // 列缺失 → 添加
+          // 列缺失：先检查旧版同步（列名未加引号）产生的全小写变体，
+          // 存在则重命名以保真大小写（RENAME 不丢数据），避免新旧列并存。
+          const lowerVariant = col.name.toLowerCase();
+          const lowerExisting = existingCols.get(lowerVariant);
+          if (lowerExisting) {
+            console.log(
+              `[DB Sync] Column "${table.name}"."${lowerVariant}" is lowercase variant of "${col.name}" — renaming.`
+            );
+            if (autoSync) {
+              try {
+                await client.$queryRawUnsafe(
+                  `ALTER TABLE "${table.name}" RENAME COLUMN "${lowerVariant}" TO "${col.name}"`
+                );
+                report.columnsAdded.push({ table: table.name, column: col.name });
+                console.log(
+                  `[DB Sync] Renamed "${table.name}"."${lowerVariant}" → "${col.name}".`
+                );
+                existingCols.delete(lowerVariant);
+                existingCols.set(col.name, { ...lowerExisting, column_name: col.name });
+              } catch (err) {
+                const msg = `Rename "${table.name}"."${lowerVariant}" failed: ${err instanceof Error ? err.message : String(err)}`;
+                console.warn(`[DB Sync] ${msg}`);
+                report.mismatches.push(msg);
+              }
+            } else {
+              console.log(
+                `[DB Sync] [DRY-RUN] Would rename "${table.name}"."${lowerVariant}" → "${col.name}".`
+              );
+            }
+            continue;
+          }
+
+          // 真正缺失 → 添加
           const sql = buildAddColumnSQL(table.name, col);
           console.log(
             `[DB Sync] Column "${table.name}"."${col.name}" missing — adding.`

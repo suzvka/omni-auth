@@ -152,7 +152,7 @@ async function main() {
       await pool.query(sql);
       console.log(`✅ 表 "${table.name}" 已就绪`);
 
-      // 3. 为表添加缺失的列（幂等）
+      // 3. 为表添加缺失的列（幂等）；旧版建表（未加引号）产生的全小写列名自动修正
       const { rows: existingCols } = await pool.query<{ column_name: string }>(
         `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
         [table.name]
@@ -160,15 +160,36 @@ async function main() {
       const existingNames = new Set(existingCols.map((c) => c.column_name));
 
       for (const col of table.columns) {
-        if (!existingNames.has(col.name)) {
+        if (existingNames.has(col.name)) continue;
+
+        // 旧版 schema 同步（列名未加引号）会把驼峰列折叠为全小写，
+        // 导致 better-auth 读取字段失败（providerid ≠ providerId）。
+        // 检测到小写变体时重命名列以保真大小写（RENAME 不丢数据）。
+        const lowerVariant = col.name.toLowerCase();
+        if (existingNames.has(lowerVariant)) {
           try {
             await pool.query(
-              `ALTER TABLE "${table.name}" ADD COLUMN "${col.name}" ${col.type}`
+              `ALTER TABLE "${table.name}" RENAME COLUMN "${lowerVariant}" TO "${col.name}"`
             );
-            console.log(`   ↳ 新增列 "${table.name}"."${col.name}"`);
+            console.log(`   ↳ 修正列名大小写 "${table.name}"."${lowerVariant}" → "${col.name}"`);
+            existingNames.delete(lowerVariant);
+            existingNames.add(col.name);
+            continue;
           } catch (err) {
-            console.warn(`   ⚠️ 添加列 "${table.name}"."${col.name}" 失败: ${(err as Error).message}`);
+            console.warn(
+              `   ⚠️ 修正列名 "${table.name}"."${lowerVariant}" 失败: ${(err as Error).message}`
+            );
+            continue;
           }
+        }
+
+        try {
+          await pool.query(
+            `ALTER TABLE "${table.name}" ADD COLUMN "${col.name}" ${col.type}`
+          );
+          console.log(`   ↳ 新增列 "${table.name}"."${col.name}"`);
+        } catch (err) {
+          console.warn(`   ⚠️ 添加列 "${table.name}"."${col.name}" 失败: ${(err as Error).message}`);
         }
       }
     }

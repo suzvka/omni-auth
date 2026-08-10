@@ -40,15 +40,17 @@ export interface PgAdapterInstance extends DatabaseAdapter {
 // SQL 生成工具
 // ----------------------------------------------------------
 
-/** 需要转义的 PostgreSQL 保留字 */
-const RESERVED_WORDS = new Set([
-  "user", "order", "group", "session", "account", "role",
-  "table", "column", "select", "from", "where", "insert",
-  "update", "delete", "create", "alter", "drop", "index",
-]);
-
+/**
+ * 标识符统一加双引号。
+ *
+ * PostgreSQL 会把未加引号的标识符折叠为小写（providerId → providerid），
+ * 而 better-auth / omni-auth 业务层期望驼峰字段名（providerId）。
+ * 表列名由 db:push / schema 同步以引号形式创建（驼峰保真），
+ * 因此读写的 SQL 必须同样加引号，否则写入折叠为小写、读取返回小写 key，
+ * 导致字段名不匹配（登录时 "Credential account not found"）。
+ */
 function quoteIdent(name: string): string {
-  return RESERVED_WORDS.has(name.toLowerCase()) ? `"${name}"` : name;
+  return `"${name.replace(/"/g, '""')}"`;
 }
 
 /** 将 WhereCondition 转为参数化 SQL */

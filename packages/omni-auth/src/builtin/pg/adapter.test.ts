@@ -1,20 +1,27 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PgAdapter, buildPoolConfig } from "./adapter";
 
-// PgAdapter 通过动态 import("pg") 延迟加载，mock 捕获 Pool 构造参数
+// PgAdapter 通过动态 import("pg") 延迟加载，mock 捕获 Pool 构造参数与 SQL
 const mockPoolCtor = vi.hoisted(() => vi.fn());
+const mockQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("pg", () => ({
   Pool: class {
     constructor(config: unknown) {
       mockPoolCtor(config);
     }
-    query = async () => ({ rows: [], rowCount: 0 });
+    query = mockQuery;
     end = async () => {};
   },
 }));
 
 describe("PgAdapter", () => {
+  beforeEach(() => {
+    mockPoolCtor.mockClear();
+    mockQuery.mockReset();
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+  });
+
   it("init() 延迟加载 pg 并透传连接池配置", async () => {
     const adapter = PgAdapter({
       url: "postgres://localhost:5432/db",
@@ -35,7 +42,31 @@ describe("PgAdapter", () => {
     const adapter = PgAdapter({ url: "postgres://localhost:5432/db" });
     await adapter.init();
     await adapter.init();
-    expect(mockPoolCtor).toHaveBeenCalledTimes(2); // 每个 adapter 实例一个池
+    expect(mockPoolCtor).toHaveBeenCalledTimes(1); // 同一实例只建一个池
+  });
+
+  it("SELECT 使用引号标识符保持驼峰列名（providerId 而非 providerid）", async () => {
+    const adapter = PgAdapter({ url: "postgres://localhost:5432/db" });
+    await adapter.findOne({
+      model: "account",
+      where: [{ field: "providerId", value: "credential" }],
+    });
+    const sql = mockQuery.mock.calls[0][0] as string;
+    expect(sql).toContain('FROM "account"');
+    expect(sql).toContain('"providerId"');
+  });
+
+  it("INSERT 使用引号列名（数据写入驼峰列）", async () => {
+    mockQuery.mockResolvedValue({ rows: [{ id: "a1" }], rowCount: 1 });
+    const adapter = PgAdapter({ url: "postgres://localhost:5432/db" });
+    await adapter.create({
+      model: "account",
+      data: { providerId: "credential", userId: "u1", password: "hash" },
+    });
+    const sql = mockQuery.mock.calls[0][0] as string;
+    expect(sql).toContain('INSERT INTO "account"');
+    expect(sql).toContain('"providerId"');
+    expect(sql).toContain('"userId"');
   });
 });
 
