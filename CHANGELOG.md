@@ -1,5 +1,66 @@
 # Changelog
 
+## v0.6.3 — Next.js 16 打包兼容性修复
+
+### 缺陷修复
+
+#### PgAdapter 动态 require 导致 Next.js 16 构建/运行失败
+
+**问题根因**：PgAdapter 源码中通过 `require("pg")` 延迟加载 pg。esbuild（tsup）在 ESM 产物中把 `require` 调用改写为 `__require` shim（`var __require = (x) => typeof require !== "undefined" ? require : ...`）。Next.js 16 的打包器（webpack / Turbopack）无法静态分析 `__require("pg")` 这种动态 require，报 `dynamic usage of require is not supported`，导致所有调用 omni-auth 的 API 路由（注册、登录、用户管理等）返回 500。
+
+**修复方案**：改用动态 ESM import：
+
+```ts
+// 修复前（esbuild 转为 __require shim，Next.js 打包器无法分析）
+const { Pool: PgPool } = require("pg");
+
+// 修复后（动态 import 是标准语法，打包器可正确 externalize pg）
+const pg = await import("pg");
+const pool = new pg.Pool(config);
+```
+
+效果：
+- ESM / CJS 产物均保留标准 `import("pg")`，不再出现 `__require`
+- Next.js 16 打包器（webpack 与 Turbopack）均能正确将 pg 作为外部 Node 模块处理
+- **无需再配置 `serverExternalPackages`**（omni-auth / omni-auth-nextjs / pg 均不需要）
+
+**影响范围**：`omni-auth` 的 `PgAdapter`（含 `createQuickAuth` 声明式配置路径）。
+
+#### Edge Middleware 打包失败：Can't resolve 'omni-auth-nextjs'
+
+**问题根因**：`omni-auth-nextjs` 的 `middleware.ts` 顶层从 `omni-auth` 主入口导入 `createRequestContext`，依赖链包含 pg（Node 专用模块），Edge Runtime 打包器无法解析。
+
+**修复方案**：
+- `omni-auth` 新增轻量子路径 **`omni-auth/request`**（零依赖，仅 RequestContext，Edge 安全）
+- `omni-auth-nextjs` 新增子路径 **`omni-auth-nextjs/middleware`**（独立打包入口，不含 omni-auth 主入口依赖链）
+- `middleware.ts` 改为从 `omni-auth/request` 导入
+
+**迁移说明**：Edge Middleware 场景请改用子路径导入（主入口 re-export 仍保留，但仅限 Node.js Runtime）：
+
+```ts
+// middleware.ts — Edge Runtime
+import { createEdgeMiddleware } from "omni-auth-nextjs/middleware";
+```
+
+### 新功能
+
+- `omni-auth` 导出子路径 `omni-auth/request`（框架无关的 RequestContext，零依赖，Edge Runtime 安全）
+- `omni-auth-nextjs` 导出子路径 `omni-auth-nextjs/middleware`（middleware 专用入口）
+
+### 内部改进
+
+- `PgAdapter` 增加 `_pgPromise` 缓存，重复调用只加载一次 pg 模块
+- 新增测试：PgAdapter 延迟加载与连接池配置透传（动态 import 路径）
+
+### 升级说明
+
+1. 更新依赖：`pnpm add omni-auth@0.6.3 omni-auth-nextjs@0.6.3`
+2. **移除** `next.config.ts` 中此前为规避问题添加的 `serverExternalPackages`（若存在）
+3. Edge Middleware 用户将导入路径改为 `omni-auth-nextjs/middleware`
+4. **无其他破坏性变更**；`omni-auth/request` 与 `omni-auth-nextjs/middleware` 为新增导出
+
+---
+
 ## v0.6.2 — Better Auth 适配器兼容性修复
 
 ### 缺陷修复

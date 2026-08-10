@@ -109,7 +109,9 @@ export function createRouteHelpers(auth: OmniAuth): NextjsRouteHelpers {
   };
 }
 
-// 重新导出 middleware（兼容 import from "omni-auth-nextjs"）
+// 重新导出 middleware（兼容 import from "omni-auth-nextjs"，仅限 Node.js Runtime）
+// Edge Runtime 场景必须从 "omni-auth-nextjs/middleware" 导入：
+// 主入口依赖链含 pg（Node 专用），Edge 打包器无法解析。
 export { createMiddleware, createDefaultMiddleware, createEdgeMiddleware } from "./middleware";
 export type { MiddlewareConfig, EdgeMiddlewareConfig } from "./middleware";
 

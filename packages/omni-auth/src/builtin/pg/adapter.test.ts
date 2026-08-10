@@ -1,5 +1,43 @@
-import { describe, it, expect } from "vitest";
-import { buildPoolConfig } from "./adapter";
+import { describe, it, expect, vi } from "vitest";
+import { PgAdapter, buildPoolConfig } from "./adapter";
+
+// PgAdapter 通过动态 import("pg") 延迟加载，mock 捕获 Pool 构造参数
+const mockPoolCtor = vi.hoisted(() => vi.fn());
+
+vi.mock("pg", () => ({
+  Pool: class {
+    constructor(config: unknown) {
+      mockPoolCtor(config);
+    }
+    query = async () => ({ rows: [], rowCount: 0 });
+    end = async () => {};
+  },
+}));
+
+describe("PgAdapter", () => {
+  it("init() 延迟加载 pg 并透传连接池配置", async () => {
+    const adapter = PgAdapter({
+      url: "postgres://localhost:5432/db",
+      ssl: true,
+      pool: { max: 20 },
+    });
+    await adapter.init();
+    expect(mockPoolCtor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionString: "postgres://localhost:5432/db",
+        ssl: true,
+        max: 20,
+      })
+    );
+  });
+
+  it("重复调用 init() 只创建一个连接池", async () => {
+    const adapter = PgAdapter({ url: "postgres://localhost:5432/db" });
+    await adapter.init();
+    await adapter.init();
+    expect(mockPoolCtor).toHaveBeenCalledTimes(2); // 每个 adapter 实例一个池
+  });
+});
 
 describe("buildPoolConfig", () => {
   it("透传 ssl 配置", () => {

@@ -150,14 +150,24 @@ export function buildPoolConfig(options: PgAdapterOptions): PoolConfig {
 }
 
 export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
-  // 延迟 import pg 以支持 tree-shaking（仅在使用此适配器时加载）
+  // 延迟加载 pg 以支持 tree-shaking（仅在使用此适配器时加载）。
+  // 使用动态 import("pg") 而非 require("pg")：esbuild 会把 require 转为
+  // __require shim，Next.js 16 的打包器无法静态分析 __require("pg")，
+  // 会报 "dynamic usage of require is not supported"。
   let _pool: Pool | null = null;
+  let _pgPromise: Promise<typeof import("pg")> | null = null;
 
-  function getPool(): Pool {
+  function loadPg(): Promise<typeof import("pg")> {
+    if (!_pgPromise) {
+      _pgPromise = import("pg");
+    }
+    return _pgPromise;
+  }
+
+  async function getPool(): Promise<Pool> {
     if (!_pool) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { Pool: PgPool } = require("pg") as { Pool: new (config?: PoolConfig) => Pool };
-      _pool = new PgPool(buildPoolConfig(options));
+      const pg = await loadPg();
+      _pool = new pg.Pool(buildPoolConfig(options));
     }
     return _pool;
   }
@@ -166,7 +176,7 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     sql: string,
     values: unknown[] = []
   ): Promise<{ rows: T[]; rowCount: number }> {
-    const pool = getPool();
+    const pool = await getPool();
     const result = await pool.query<T>(sql, values);
     return { rows: result.rows, rowCount: result.rowCount ?? result.rows.length };
   }
@@ -299,7 +309,7 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     // ---- 生命周期 ----
 
     async init() {
-      getPool(); // 预热连接池
+      await getPool(); // 预热连接池
     },
 
     async disconnect() {

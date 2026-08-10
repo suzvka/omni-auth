@@ -1,6 +1,6 @@
 {
   "name": "omni-auth-nextjs",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Next.js integration layer for omni-auth SDK",
   "author": "Omni Auth Contributors",
   "license": "MIT",
@@ -22,6 +22,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./middleware": {
+      "types": "./dist/middleware.d.ts",
+      "import": "./dist/middleware.js",
+      "require": "./dist/middleware.cjs"
     }
   },
   "files": [
