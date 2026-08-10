@@ -23,6 +23,13 @@ interface BAWhere {
 }
 
 /**
+ * Better Auth join 的运行时形状：{ account: true } 或 { member: { limit: 5 } }。
+ */
+interface BAJoin {
+  [model: string]: boolean | { limit?: number };
+}
+
+/**
  * 将 Better Auth 的 Where 转换为 OmniAuth 的 WhereCondition。
  *
  * 差异处理：
@@ -50,6 +57,42 @@ function mapWhere(baWhere: BAWhere[]): WhereCondition[] {
  * @returns 兼容 Better Auth 的 adapter 对象
  */
 export function toBetterAuthAdapter(db: DatabaseAdapter): Record<string, unknown> {
+  /**
+   * 解析 better-auth 的 join 参数（1.6.x 核心功能：密码 hash 存 account 表，
+   * 登录时通过 user join account 读取；session join user 还原用户）。
+   *
+   * 关系判定：
+   * - 正向：主记录含 `${model}Id` 字段（如 session.userId → user），查单条
+   * - 反向：被 join 模型通过 `${hostModel}Id` 指向主记录（如 user ← account.userId），查多条
+   */
+  async function resolveJoins(
+    hostModel: string,
+    record: Record<string, unknown>,
+    join: BAJoin | undefined
+  ): Promise<Record<string, unknown>> {
+    if (!join) return record;
+    const result: Record<string, unknown> = { ...record };
+    for (const [model, config] of Object.entries(join)) {
+      const fk = `${model}Id`;
+      if (record[fk] != null) {
+        // 正向：主记录通过外键指向被 join 模型
+        result[model] = await db.findOne({
+          model,
+          where: [{ field: "id", value: record[fk] as string }],
+        });
+      } else {
+        // 反向：被 join 模型通过 `${hostModel}Id` 引用主记录
+        const limit = typeof config === "object" ? config.limit : undefined;
+        result[model] = await db.findMany({
+          model,
+          where: [{ field: `${hostModel}Id`, value: record.id as string }],
+          limit,
+        });
+      }
+    }
+    return result;
+  }
+
   return {
     id: "omni-pg",
 
@@ -99,28 +142,33 @@ export function toBetterAuthAdapter(db: DatabaseAdapter): Record<string, unknown
       });
     },
 
-    // ---- findOne（忽略 BA 的 select / join 参数） ----
+    // ---- findOne（支持 join；select 由 BA adapter factory 的 transformOutput 处理） ----
     findOne: async ({
       model,
       where,
+      join,
     }: {
       model: string;
       where: BAWhere[];
       select?: string[];
+      join?: BAJoin;
     }) => {
-      return db.findOne({
+      const record = await db.findOne({
         model,
         where: mapWhere(where),
       });
+      if (!record) return null;
+      return resolveJoins(model, record as Record<string, unknown>, join);
     },
 
-    // ---- findMany（sortBy → orderBy 映射，忽略 select / join） ----
+    // ---- findMany（sortBy → orderBy 映射；支持 join） ----
     findMany: async ({
       model,
       where,
       limit,
       sortBy,
       offset,
+      join,
     }: {
       model: string;
       where?: BAWhere[];
@@ -128,14 +176,22 @@ export function toBetterAuthAdapter(db: DatabaseAdapter): Record<string, unknown
       select?: string[];
       sortBy?: { field: string; direction: "asc" | "desc" };
       offset?: number;
+      join?: BAJoin;
     }) => {
-      return db.findMany({
+      const records = await db.findMany({
         model,
         where: where ? mapWhere(where) : undefined,
         orderBy: sortBy,
         limit,
         offset,
       } as Partial<Parameters<typeof db.findMany>[0]> as never);
+      if (!join) return records;
+      // 逐条解析 join（session 列表等场景数据量小，可接受）
+      return Promise.all(
+        records.map((r) =>
+          resolveJoins(model, r as Record<string, unknown>, join)
+        )
+      );
     },
 
     // ---- delete → deleteOne（方法名映射） ----

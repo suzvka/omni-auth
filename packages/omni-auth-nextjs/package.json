@@ -1,6 +1,6 @@
 {
   "name": "omni-auth-nextjs",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Next.js integration layer for omni-auth SDK",
   "author": "Omni Auth Contributors",
   "license": "MIT",
