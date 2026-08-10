@@ -9,6 +9,7 @@ import {
   PgAdapter,
 } from "omni-auth";
 import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver } from "omni-auth";
+import type { PgAdapterOptions } from "omni-auth";
 import type { BetterAuthOptions } from "better-auth";
 import { toBetterAuthAdapter } from "./adapter-bridge";
 
@@ -164,6 +165,8 @@ function isDeclarativeDbConfig(cfg: DatabaseAdapter | DeclarativeDbConfig): cfg 
 export interface DeclarativeDbConfig {
   /** PostgreSQL 连接 URL（必填） */
   url: string;
+  /** TLS/SSL 配置（Neon、Supabase 等云数据库通常要求启用） */
+  ssl?: PgAdapterOptions["ssl"];
   /** 连接池配置（可选） */
   pool?: {
     max?: number;
@@ -310,7 +313,13 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
     } else {
       // v0.6.0: 桥接 DatabaseAdapter → Better Auth CustomAdapter
       // 解决方法名差异（update/delete vs updateOne/deleteOne）和 Where 运算符翻译
-      mergedOverrides.database = toBetterAuthAdapter(database) as never;
+      //
+      // 必须以函数形式传入：better-auth@1.6.26 的 full 模式（import { betterAuth } from
+      // "better-auth"）中 getBaseAdapter 对 database 对象一律走 Kysely 路径
+      // （createKyselyAdapter），CustomAdapter 对象会被判为 { kysely: null } 并抛出
+      // "Failed to initialize database adapter"；只有函数形式会命中
+      // `typeof database === "function"` 分支被直接调用。
+      mergedOverrides.database = (() => toBetterAuthAdapter(database)) as never;
     }
   }
 

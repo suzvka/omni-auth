@@ -1,6 +1,6 @@
 {
   "name": "omni-auth-nextjs",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Next.js integration layer for omni-auth SDK",
   "author": "Omni Auth Contributors",
   "license": "MIT",
@@ -31,7 +31,8 @@
     "build": "tsup",
     "prepublishOnly": "pnpm build",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "omni-auth": "workspace:*",
@@ -43,7 +44,8 @@
   "devDependencies": {
     "next": "16.2.6",
     "tsup": "^8",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.7"
   },
   "keywords": [
     "auth",

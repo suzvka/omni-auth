@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.6.2 — Better Auth 适配器兼容性修复
+
+### 缺陷修复
+
+#### `createQuickAuth` 初始化崩溃：Failed to initialize database adapter
+
+**问题根因**：better-auth@1.6.26 的 full 模式（`import { betterAuth } from "better-auth"`）中，`getBaseAdapter` 对 `database` 选项的处理分为两条路径——函数形式被直接调用，**对象形式一律走 Kysely 适配器路径**（`createKyselyAdapter`）。omni-auth-nextjs 此前将 `toBetterAuthAdapter()` 的桥接结果（CustomAdapter 形状的**对象**）放入 `overrides.database`，被 Kysely 路径判为 `{ kysely: null }`，抛出 `Failed to initialize database adapter`，导致应用在启动/首次请求时崩溃。
+
+**修复方案**：桥接结果改为以**函数形式**传入（`() => toBetterAuthAdapter(database)`），命中 `getBaseAdapter` 的函数分支被直接调用，跳过 Kysely 路径。
+
+```ts
+// 修复前（对象形式 → 必崩）
+mergedOverrides.database = toBetterAuthAdapter(database);
+
+// 修复后（函数形式 → 正常）
+mergedOverrides.database = () => toBetterAuthAdapter(database);
+```
+
+影响范围：`omni-auth-nextjs` 的 `createQuickAuth`（含声明式配置 `database: { url }` 与自定义 `DatabaseAdapter` 两种用法）。
+
+### 新功能
+
+#### PgAdapter 支持 `ssl` 选项
+
+`PgAdapter` 与声明式配置 `database: { url, ssl }` 新增 `ssl` 字段（透传给 `pg` 连接池），兼容两种形式：
+
+```ts
+// 形式一：布尔值
+database: { url: process.env.DATABASE_URL, ssl: true }
+
+// 形式二：自定义 TLS 配置（如关闭证书校验的云数据库）
+database: { url: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
+```
+
+Neon、Supabase 等强制 TLS 的云数据库必须配置此选项。
+
+### 内部改进
+
+- 提取 `buildPoolConfig()` 纯函数（pg 连接池参数构造，便于单元测试）
+- 新增测试：`omni-auth` PgAdapter 配置测试；`omni-auth-nextjs` `createQuickAuth` 回归测试（断言适配器以函数形式传入且初始化不抛错）
+- `omni-auth-nextjs` 补齐 vitest 测试基础设施（`test` 脚本 + vitest devDependency）
+
+### 升级说明
+
+1. 更新依赖：`pnpm add omni-auth@0.6.2 omni-auth-nextjs@0.6.2`
+2. **无破坏性变更**。已有代码无需改动；云数据库用户建议补上 `ssl` 配置。
+
+---
+
 ## v0.6.0 — 项目更名为 OmniAuth
 
 ### 概述

@@ -20,6 +20,8 @@ import type {
 export interface PgAdapterOptions {
   /** PostgreSQL 连接 URL（必填） */
   url: string;
+  /** TLS/SSL 配置（Neon、Supabase 等云数据库通常要求启用） */
+  ssl?: PoolConfig["ssl"];
   /** 连接池配置（可选） */
   pool?: {
     max?: number;
@@ -137,6 +139,16 @@ function buildOrderClause(orderBy: OrderByCondition): string {
 // 适配器实现
 // ----------------------------------------------------------
 
+/** 构建 pg Pool 构造参数（独立纯函数，便于单元测试） */
+export function buildPoolConfig(options: PgAdapterOptions): PoolConfig {
+  return {
+    connectionString: options.url,
+    ssl: options.ssl,
+    max: options.pool?.max ?? 10,
+    idleTimeoutMillis: options.pool?.idleTimeoutMillis ?? 30000,
+  };
+}
+
 export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
   // 延迟 import pg 以支持 tree-shaking（仅在使用此适配器时加载）
   let _pool: Pool | null = null;
@@ -145,11 +157,7 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     if (!_pool) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { Pool: PgPool } = require("pg") as { Pool: new (config?: PoolConfig) => Pool };
-      _pool = new PgPool({
-        connectionString: options.url,
-        max: options.pool?.max ?? 10,
-        idleTimeoutMillis: options.pool?.idleTimeoutMillis ?? 30000,
-      });
+      _pool = new PgPool(buildPoolConfig(options));
     }
     return _pool;
   }

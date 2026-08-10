@@ -1,6 +1,6 @@
 {
   "name": "omni-auth",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "OmniAuth — omnichannel authentication SDK, framework-agnostic, built on Better Auth",
   "author": "Omni Auth Contributors",
   "license": "MIT",
