@@ -20,9 +20,6 @@ importers:
       omni-auth:
         specifier: workspace:*
         version: link:packages/omni-auth
-      omni-auth-nextjs:
-        specifier: workspace:*
-        version: link:packages/omni-auth-nextjs
       react:
         specifier: 19.2.4
         version: 19.2.4
@@ -67,28 +64,12 @@ importers:
       '@types/pg':
         specifier: ^8
         version: 8.20.0
-      pg:
-        specifier: ^8
-        version: 8.21.0
-      tsup:
-        specifier: ^8
-        version: 8.5.1(jiti@2.7.0)(postcss@8.5.15)(typescript@5.9.3)
-      typescript:
-        specifier: ^5
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.7
-        version: 4.1.8(@types/node@20.19.41)(vite@8.0.16(@types/node@20.19.41)(esbuild@0.27.7)(jiti@2.7.0))
-
-  packages/omni-auth-nextjs:
-    dependencies:
-      omni-auth:
-        specifier: workspace:*
-        version: link:../omni-auth
-    devDependencies:
       next:
         specifier: 16.2.6
         version: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      pg:
+        specifier: ^8
+        version: 8.21.0
       tsup:
         specifier: ^8
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.15)(typescript@5.9.3)

@@ -7,7 +7,7 @@
 // - 自动设置 User 创建后的 BusinessAccount hook
 // ============================================================
 
-import { createQuickAuth, createRouteHelpers } from "omni-auth-nextjs";
+import { createQuickAuth, createRouteHelpers } from "omni-auth/nextjs";
 import type { Account, DBApi } from "omni-auth";
 
 export const auth = createQuickAuth({

@@ -1,7 +1,7 @@
 {
   "name": "omni-auth",
-  "version": "0.6.4",
-  "description": "OmniAuth — omnichannel authentication SDK, framework-agnostic, built on Better Auth",
+  "version": "0.7.0",
+  "description": "OmniAuth — omnichannel authentication SDK, built on Better Auth, with first-class Next.js integration",
   "author": "Omni Auth Contributors",
   "license": "MIT",
   "repository": {
@@ -37,6 +37,16 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
       "require": "./dist/client.cjs"
+    },
+    "./nextjs": {
+      "types": "./dist/nextjs/index.d.ts",
+      "import": "./dist/nextjs/index.js",
+      "require": "./dist/nextjs/index.cjs"
+    },
+    "./middleware": {
+      "types": "./dist/nextjs/middleware.d.ts",
+      "import": "./dist/nextjs/middleware.js",
+      "require": "./dist/nextjs/middleware.cjs"
     }
   },
   "files": [
@@ -55,10 +65,14 @@
     "test:watch": "vitest"
   },
   "peerDependencies": {
-    "better-auth": "^1.6.26"
+    "better-auth": "^1.6.26",
+    "next": ">=16"
   },
   "peerDependenciesMeta": {
     "pg": {
+      "optional": true
+    },
+    "next": {
       "optional": true
     }
   },
@@ -67,6 +81,7 @@
   },
   "devDependencies": {
     "@types/pg": "^8",
+    "next": "16.2.6",
     "pg": "^8",
     "tsup": "^8",
     "typescript": "^5",

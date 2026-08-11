@@ -6,7 +6,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { createQuickAuth } from "./index";
-import type { DatabaseAdapter } from "omni-auth";
+import type { DatabaseAdapter } from "../adapters/database";
 
 // 完整内存数据库：记录所有模型（user/session/account/socialAccount/businessAccount）
 function createInMemoryDb(): DatabaseAdapter & { dump(model: string): Record<string, unknown>[] } {

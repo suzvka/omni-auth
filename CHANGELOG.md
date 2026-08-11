@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.7.0 — 合并发布包：omni-auth-nextjs 并入 omni-auth
+
+### 重大变更
+
+`omni-auth-nextjs` 已合并进 `omni-auth` 单包发布，Next.js 集成层改为子路径导出。实际使用场景均为 Next.js，拆双包带来的版本同步与双包安装成本大于收益，故合并。
+
+### 导入路径迁移对照
+
+| 旧导入 | 新导入 |
+| --- | --- |
+| `from "omni-auth-nextjs"` | `from "omni-auth/nextjs"` |
+| `from "omni-auth-nextjs/middleware"` | `from "omni-auth/middleware"` |
+| `from "omni-auth"`（核心） | 不变 |
+
+`omni-auth/nextjs` 入口继续提供 `createQuickAuth`、`createRouteHandlers`、`createRouteHelpers`、`nextjsRequestContext`、`oauthCookieResponse` 及核心类型/错误类的统一再导出，功能无任何变化。
+
+### 其他变更
+
+- `next` 声明为可选 peerDependency（仅使用 `/nextjs`、`/middleware` 子路径时需要）
+- 原有子路径导出 `omni-auth/request`、`omni-auth/client`、`omni-auth/adapters/pg` 与 `db-push` CLI 保持不变
+- npm 上的 `omni-auth-nextjs` 旧包已弃用，不再发布新版本
+
+### 升级说明
+
+1. 更新依赖：`pnpm remove omni-auth-nextjs; pnpm add omni-auth@0.7.0`
+2. 全局替换导入路径：`omni-auth-nextjs` → `omni-auth/nextjs`（middleware 子路径 → `omni-auth/middleware`）
+
 ## v0.6.4 — 登录密码校验修复（Better Auth join 支持 + PostgreSQL 列名大小写）
 
 ### 缺陷修复（omni-auth-nextjs 0.6.4）

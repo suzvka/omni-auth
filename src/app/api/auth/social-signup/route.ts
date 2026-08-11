@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { oauthCookieResponse } from "omni-auth-nextjs";
+import { oauthCookieResponse } from "omni-auth/nextjs";
 
 // ============================================================
 // POST /api/auth/social-signup

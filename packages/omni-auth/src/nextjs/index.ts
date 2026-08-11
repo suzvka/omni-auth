@@ -1,33 +1,36 @@
 import { headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import type { OmniAuth, RequestContext, AuthContext } from "omni-auth";
-import {
-  createRequestContext,
-  createAuth,
-  setAccountResolver,
-  PgAdapter,
-} from "omni-auth";
-import type { AccountResolver, DatabaseAdapter, LifecycleHooks, RoleResolver } from "omni-auth";
-import type { PgAdapterOptions } from "omni-auth";
+import type { OmniAuth } from "../auth";
+import type { RequestContext } from "../adapters/request";
+import type { AuthContext } from "../types";
+import { createRequestContext } from "../adapters/request";
+import { createAuth } from "../auth";
+import { setAccountResolver } from "../core/resolver";
+import { PgAdapter } from "../builtin/pg/adapter";
+import type { AccountResolver } from "../core/resolver";
+import type { DatabaseAdapter } from "../adapters/database";
+import type { LifecycleHooks } from "../core/lifecycle";
+import type { RoleResolver } from "../core/roles";
+import type { PgAdapterOptions } from "../builtin/pg/adapter";
 import type { BetterAuthOptions } from "better-auth";
 import { toBetterAuthAdapter } from "./adapter-bridge";
 
 // ============================================================
-// 统一导出：所有常用类型只需从 omni-auth-nextjs 导入
+// 统一导出：所有常用类型只需从 omni-auth/nextjs 导入
 // ============================================================
 
 export { createRequestContext };
 
 // 核心类型
-export type { AuthContext, Account, SocialAccountBrief } from "omni-auth";
-export type { AccountResolver } from "omni-auth";
-export type { SocialAccountDTO } from "omni-auth";
-export type { TokenRefresher, TokenRefreshResult, SocialAccountRef } from "omni-auth";
-export type { OAuthProviderConfig, OAuthCallbackResult } from "omni-auth";
+export type { AuthContext, Account, SocialAccountBrief } from "../types";
+export type { AccountResolver } from "../core/resolver";
+export type { SocialAccountDTO } from "../social/types";
+export type { TokenRefresher, TokenRefreshResult, SocialAccountRef } from "../social/token";
+export type { OAuthProviderConfig, OAuthCallbackResult } from "../oauth/types";
 
 // 错误类
-export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "omni-auth";
+export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "../errors";
 
 /** 从 Next.js headers() 构建 RequestContext */
 export function nextjsRequestContext(
@@ -87,7 +90,7 @@ export interface NextjsRouteHelpers {
  * 将原来 5 行 boilerplate：
  * ```ts
  * import { auth } from "@/lib/auth";
- * import { nextjsRequestContext } from "omni-auth-nextjs";
+ * import { nextjsRequestContext } from "omni-auth/nextjs";
  * import { headers } from "next/headers";
  * const ctx = await auth.requireContext(nextjsRequestContext(await headers()));
  * ```
@@ -109,9 +112,9 @@ export function createRouteHelpers(auth: OmniAuth): NextjsRouteHelpers {
   };
 }
 
-// 重新导出 middleware（兼容 import from "omni-auth-nextjs"，仅限 Node.js Runtime）
-// Edge Runtime 场景必须从 "omni-auth-nextjs/middleware" 导入：
-// 主入口依赖链含 pg（Node 专用），Edge 打包器无法解析。
+// 重新导出 middleware（兼容 import from "omni-auth/nextjs"，仅限 Node.js Runtime）
+// Edge Runtime 场景必须从 "omni-auth/middleware" 导入：
+// nextjs 入口依赖链含 pg（Node 专用），Edge 打包器无法解析。
 export { createMiddleware, createDefaultMiddleware, createEdgeMiddleware } from "./middleware";
 export type { MiddlewareConfig, EdgeMiddlewareConfig } from "./middleware";
 
@@ -232,7 +235,7 @@ export interface QuickAuthConfig {
  *
  * @example
  * ```ts
- * import { createQuickAuth } from "omni-auth-nextjs";
+ * import { createQuickAuth } from "omni-auth/nextjs";
  *
  * export const auth = createQuickAuth({
  *   database: { url: process.env.DATABASE_URL },

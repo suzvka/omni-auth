@@ -1,4 +1,4 @@
-import type { DatabaseAdapter, WhereCondition } from "omni-auth";
+import type { DatabaseAdapter, WhereCondition } from "../adapters/database";
 
 // ============================================================
 // Better Auth CustomAdapter 桥接层

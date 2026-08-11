@@ -29,13 +29,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build packages
-        run: pnpm -r --filter omni-auth --filter omni-auth-nextjs build
+      - name: Build package
+        run: pnpm --filter omni-auth build
 
-      # 先发布 omni-auth，再发布 omni-auth-nextjs（后者 workspace 依赖前者，
-      # pnpm publish 会自动将 workspace:* 改写为实际版本号）
       - name: Publish omni-auth
         run: pnpm --filter omni-auth publish --access public --no-git-checks
-
-      - name: Publish omni-auth-nextjs
-        run: pnpm --filter omni-auth-nextjs publish --access public --no-git-checks

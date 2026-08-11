@@ -6,7 +6,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { createQuickAuth } from "./index";
-import type { DatabaseAdapter } from "omni-auth";
+import type { DatabaseAdapter } from "../adapters/database";
 
 function createInMemoryDb(): DatabaseAdapter {
   const store = new Map<string, Map<string, Record<string, unknown>>>();

@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { nextjsRequestContext } from "omni-auth-nextjs";
+import { nextjsRequestContext } from "omni-auth/nextjs";
 import { UnauthorizedError } from "omni-auth";
 
 export async function GET() {

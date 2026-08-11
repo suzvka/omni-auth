@@ -27,11 +27,10 @@
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import type { OmniAuth } from "omni-auth";
-// 从轻量子路径导入：omni-auth 主入口含 pg 依赖链（Node 专用），
-// Edge Runtime 打包器无法解析，会报 "Can't resolve 'omni-auth'"。
-// "omni-auth/request" 零依赖，Edge 安全。
-import { createRequestContext } from "omni-auth/request";
+import type { OmniAuth } from "../auth";
+// 仅导入轻量模块：omni-auth 主入口含 pg 依赖链（Node 专用），
+// Edge Runtime 打包器无法解析。adapters/request 零依赖，Edge 安全。
+import { createRequestContext } from "../adapters/request";
 
 // ============================================================
 // 类型定义
@@ -150,8 +149,8 @@ function logMiddlewareError(
  * @example
  * ```ts
  * // middleware.ts — Edge Runtime 必须从子路径导入：
- * // 主入口 "omni-auth-nextjs" 依赖链含 pg（Node 专用），Edge 打包器无法解析
- * import { createEdgeMiddleware } from "omni-auth-nextjs/middleware";
+ * // 主入口 "omni-auth/nextjs" 依赖链含 pg（Node 专用），Edge 打包器无法解析
+ * import { createEdgeMiddleware } from "omni-auth/middleware";
  *
  * export const middleware = createEdgeMiddleware();
  *
@@ -273,7 +272,7 @@ export function createEdgeMiddleware(config: EdgeMiddlewareConfig = {}) {
  * // middleware.ts
  * export const runtime = "nodejs";
  *
- * import { createMiddleware } from "omni-auth-nextjs";
+ * import { createMiddleware } from "omni-auth/nextjs";
  * import { auth } from "@/lib/auth";
  *
  * export const middleware = createMiddleware(auth, {
