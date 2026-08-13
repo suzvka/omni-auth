@@ -1,19 +1,19 @@
 // ============================================================
 // OmniAuth — SDK 主类
 //
-// 完全封装 Better Auth，提供框架无关的认证 API。
+// 提供框架无关的认证 API。
 // ============================================================
 
-import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { createHmac } from "crypto";
+import { randomUUID } from "crypto";
+import { createAuthToken, validateToken, revokeToken as revokeTokenFn, revokeAllTokens as revokeAllTokensFn } from "./core/token";
+import { hashPassword, verifyPassword } from "@better-auth/utils/password";
 import type { DatabaseAdapter } from "./adapters/database";
 import type { RequestContext } from "./adapters/request";
 import type { AuthContext, Account, PublicUser, SocialAccountBrief, UserChannel } from "./types";
 import type { AccountResolver } from "./core/resolver";
 import { getAccountResolver, setAccountResolver } from "./core/resolver";
 import { setRoleResolver } from "./core/roles";
-import type { LifecycleHooks, UserCreatedPayload, SessionCreatedPayload, SessionExpiredPayload } from "./core/lifecycle";
-import type { BetterAuthSession, SignUpEmailResult, SignInEmailResult } from "./core/betterAuthTypes";
+import type { LifecycleHooks, UserCreatedPayload } from "./core/lifecycle";
 import { UnauthorizedError } from "./errors";
 import { createSocialService } from "./social/service";
 import type { SocialAccountDTO } from "./social/types";
@@ -25,7 +25,6 @@ import type { OAuthCallbackResult } from "./oauth/types";
 import { createEmailVerification } from "./core/verification";
 import { createPasswordReset } from "./core/password";
 import { createAccountDeletion } from "./core/account";
-import { createSessionManagement } from "./core/session";
 import { resolveRoles, type RoleResolver, hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
 import { publishAuditEvent } from "./core/audit";
 import { createChannelVerification, registerVerificationSender } from "./core/verification-channel";
@@ -34,12 +33,7 @@ import {
   phoneToSyntheticEmail,
   generateRandomPassword,
 } from "./core/channel-mapping";
-
-// ----------------------------------------------------------
-// BetterAuth 实例类型
-// ----------------------------------------------------------
-
-export type BetterAuthInstance = ReturnType<typeof betterAuth>;
+import { createMemoryRateLimiter, checkRateLimit } from "./core/rateLimit";
 
 // ----------------------------------------------------------
 // SDK 配置
@@ -48,24 +42,18 @@ export type BetterAuthInstance = ReturnType<typeof betterAuth>;
 export interface OmniAuthConfig {
   /** 数据库适配器（必填） */
   database: DatabaseAdapter;
-  /** Better Auth 密钥 */
+  /** 密钥 */
   secret: string;
   /** 应用基础 URL（用于生成重置链接等） */
   baseUrl: string;
-  /** Session 配置 */
-  session?: {
+  /** Token 配置 */
+  token?: {
     expiresIn?: number;
-    updateAge?: number;
-    rememberMeExpiresIn?: number;
   };
   /** 自定义业务账户解析器 */
   accountResolver?: AccountResolver;
   /** 角色解析器（提供则 getContext 自动填充 roles） */
   roleResolver?: RoleResolver;
-  /** Better Auth 插件列表（如 google(), github() 等） */
-  plugins?: BetterAuthOptions["plugins"];
-  /** 覆盖 Better Auth 配置 */
-  overrides?: Partial<BetterAuthOptions>;
   /** 生命周期钩子 */
   hooks?: LifecycleHooks;
 }
@@ -86,6 +74,8 @@ export interface SignUpInput {
     provider: string;
     identifier: string;
   };
+  /** AuthToken 携带的 metadata（可选，序列化后 ≤ 2KB） */
+  metadata?: Record<string, unknown>;
 }
 
 export interface SignUpResult {
@@ -98,6 +88,8 @@ export interface SignUpResult {
 export interface SignInInput {
   email: string;
   password: string;
+  /** AuthToken 携带的 metadata（可选，序列化后 ≤ 2KB） */
+  metadata?: Record<string, unknown>;
 }
 
 export interface SignInResult {
@@ -139,6 +131,8 @@ export interface ChannelAuthInput {
     allowPasswordUpdate?: number;
     allowVerification?: number;
   };
+  /** AuthToken 携带的 metadata（可选，序列化后 ≤ 2KB） */
+  metadata?: Record<string, unknown>;
 }
 
 export interface ChannelAuthResult {
@@ -170,6 +164,8 @@ export interface SignUpWithSocialInput {
     tokenExpiresAt?: Date | number;
     profileData?: Record<string, unknown>;
   };
+  /** AuthToken 携带的 metadata（可选，序列化后 ≤ 2KB） */
+  metadata?: Record<string, unknown>;
 }
 
 // ----------------------------------------------------------
@@ -178,15 +174,18 @@ export interface SignUpWithSocialInput {
 
 export class OmniAuth {
   private config: OmniAuthConfig;
-  private _betterAuth: BetterAuthInstance;
   private _socialService: ReturnType<typeof createSocialService>;
   private _emailVerification: ReturnType<typeof createEmailVerification> | null = null;
   private _passwordReset: ReturnType<typeof createPasswordReset> | null = null;
   private _accountDeletion: ReturnType<typeof createAccountDeletion> | null = null;
-  private _sessionManagement: ReturnType<typeof createSessionManagement> | null = null;
   private _channelVerification: ReturnType<typeof createChannelVerification> | null = null;
-  /** onSessionExpired 回调（Better Auth 无内置 hook，由 SDK 方法触发） */
-  private _onSessionExpired: ((payload: SessionExpiredPayload) => void | Promise<void>) | null = null;
+  /** 速率限制器（内存实现，各接口独立限流） */
+  private _signInRateLimit = createMemoryRateLimiter();
+  private _signUpRateLimit = createMemoryRateLimiter();
+  private _requestCodeRateLimit = createMemoryRateLimiter();
+  private _passwordResetRateLimit = createMemoryRateLimiter();
+  /** user.create.after 钩子列表（供新 signUp 内联调用，不再依赖 better-auth 触发） */
+  private _afterUserCreateHooks: Array<(user: { id: string; email?: string; name?: string }) => Promise<void>> = [];
 
   constructor(config: OmniAuthConfig) {
     this.config = config;
@@ -201,123 +200,31 @@ export class OmniAuth {
       setRoleResolver(config.roleResolver);
     }
 
-    // 存储 onSessionExpired 回调（Better Auth 无内置 session 过期 hook，由 SDK 方法触发）
-    this._onSessionExpired = config.hooks?.onSessionExpired ?? null;
-
-    // 构建 databaseHooks（Better Auth 约定字段名）
-    const databaseHooks: Record<string, unknown> = {};
-
-    if (config.hooks?.onUserCreated) {
-      const onUserCreated = config.hooks.onUserCreated;
-      databaseHooks.user = {
-        create: {
-          after: async (user: { id: string; email?: string; name?: string }) => {
-            await onUserCreated({
-              userId: user.id,
-              email: user.email,
-              name: user.name,
-            });
-          },
-        },
-      };
-    }
-
-    if (config.hooks?.onSessionCreated) {
-      const onSessionCreated = config.hooks.onSessionCreated;
-      databaseHooks.session = {
-        create: {
-          after: async (session: { userId: string; token: string; id?: string; expiresAt?: Date; ipAddress?: string; userAgent?: string; user?: { id: string; email: string; name?: string; image?: string; emailVerified?: boolean } }) => {
-            await onSessionCreated({
-              userId: session.userId,
-              token: session.token,
-              user: session.user,
-              session: session.id != null
-                ? { id: session.id, expiresAt: session.expiresAt, ipAddress: session.ipAddress, userAgent: session.userAgent }
-                : undefined,
-            });
-          },
-        },
-      };
-    }
-
-    // 创建 Better Auth 基础配置
-    const baseConfig: BetterAuthOptions = {
-      database: config.database as never,
-      secret: config.secret,
-      emailAndPassword: {
-        enabled: true,
-        requireEmailVerification: false,
-      },
-      session: {
-        expiresIn: config.session?.expiresIn ?? 60 * 60 * 24 * 7,
-        updateAge: config.session?.updateAge ?? 60 * 60 * 24,
-      },
-      databaseHooks: Object.keys(databaseHooks).length > 0
-        ? (databaseHooks as BetterAuthOptions["databaseHooks"])
-        : undefined,
-      plugins: config.plugins ?? [],
-    };
-
-    // 合并 overrides：如果 overrides 中也有 databaseHooks，与 SDK 构建的合并
-    if (config.overrides) {
-      const { databaseHooks: overrideHooks, ...restOverrides } = config.overrides as Record<string, unknown>;
-      Object.assign(baseConfig, restOverrides);
-
-      if (overrideHooks) {
-        // 深度合并：user 覆盖的 hooks 优先级高于 SDK 构建的
-        const merged: Record<string, unknown> = { ...databaseHooks };
-        for (const [model, events] of Object.entries(overrideHooks as Record<string, Record<string, Record<string, unknown>>>)) {
-          if (!merged[model]) {
-            merged[model] = { ...events };
-          } else {
-            const mergedModel = merged[model] as Record<string, Record<string, unknown>>;
-            for (const [action, handlers] of Object.entries(events)) {
-              if (!mergedModel[action]) {
-                mergedModel[action] = { ...handlers };
-              } else {
-                Object.assign(mergedModel[action], handlers);
-              }
-            }
-          }
-        }
-        baseConfig.databaseHooks = merged as BetterAuthOptions["databaseHooks"];
-      }
-    }
-
-    this._betterAuth = betterAuth(baseConfig);
-
     // 创建社交账户服务
     this._socialService = createSocialService(config.database);
 
     // 初始化 OAuth handler
     const oauthHandler = createOAuthHandler({
       db: config.database,
-      auth: this._betterAuth,
       socialService: this._socialService,
+      expiresIn: config.token?.expiresIn ?? 60 * 60 * 24 * 7,
     });
     setOAuthHandler(oauthHandler);
 
     // 初始化邮箱验证
     this._emailVerification = createEmailVerification({
-      auth: this._betterAuth,
+      db: config.database,
+      baseUrl: config.baseUrl,
     });
 
     // 初始化密码重置
     this._passwordReset = createPasswordReset({
-      auth: this._betterAuth,
-      email: null as unknown as never, // 密码重置由调用者自行提供邮件服务
-      baseUrl: config.baseUrl,
+      db: config.database,
+      expiresIn: config.token?.expiresIn ?? 60 * 60 * 24 * 7,
     });
 
     // 初始化账号注销
     this._accountDeletion = createAccountDeletion({
-      auth: this._betterAuth,
-      db: config.database,
-    });
-
-    // 初始化 Session 管理
-    this._sessionManagement = createSessionManagement({
-      auth: this._betterAuth,
       db: config.database,
     });
 
@@ -325,99 +232,235 @@ export class OmniAuth {
     this._channelVerification = createChannelVerification({
       db: config.database,
     });
+
+    // ----------------------------------------------------------
+    // 收集 user.create.after hooks（供新 signUp 内联调用）
+    // 新 signUp 不再经过 better-auth，需手动触发这些钩子。
+    // ----------------------------------------------------------
+
+    // 1. SDK 级别 onUserCreated
+    if (config.hooks?.onUserCreated) {
+      const onUserCreated = config.hooks.onUserCreated;
+      this._afterUserCreateHooks.push(async (user: { id: string; email?: string; name?: string }) => {
+        await onUserCreated({ userId: user.id, email: user.email, name: user.name });
+      });
+    }
+
   }
 
   // ----------------------------------------------------------
   // 用户认证
   // ----------------------------------------------------------
 
-  private async _signUpEmail(email: string, password: string, name: string): Promise<SignUpEmailResult> {
-    return this._betterAuth.api.signUpEmail({
-      body: { email, password, name },
-    }) as unknown as SignUpEmailResult;
-  }
-
-  private async _signInEmail(email: string, password: string): Promise<SignInEmailResult> {
-    return this._betterAuth.api.signInEmail({
-      body: { email, password },
-    }) as unknown as SignInEmailResult;
-  }
-
-  private async _getSession(ctx: RequestContext): Promise<BetterAuthSession | null> {
-    return this._betterAuth.api.getSession({
-      headers: ctx.asHeaders() as unknown as Record<string, string>,
-    }) as unknown as BetterAuthSession | null;
-  }
-
-  private async _signOut(ctx: RequestContext): Promise<void> {
-    await this._betterAuth.api.signOut({
-      headers: ctx.asHeaders() as unknown as Record<string, string>,
-    });
-  }
-
   async signUp(input: SignUpInput): Promise<SignUpResult> {
-    try {
-      const result = await this._signUpEmail(input.email, input.password, input.name);
+    // 0. 速率限制：3 次/小时
+    await checkRateLimit(this._signUpRateLimit, input.email, 3, 60 * 60 * 1000);
 
-      // 写入 SocialAccount 通道记录
-      const channelProvider = input.channel?.provider ?? "email";
-      const channelId = input.channel?.identifier ?? input.email;
-
-      if (channelProvider && channelId) {
-        try {
-          await this._socialService.bindToUser(result.user.id, {
-            provider: channelProvider,
-            providerOpenid: channelId,
-          });
-        } catch (channelErr: unknown) {
-          console.warn(
-            `[signUp] 通道记录写入失败 (userId=${result.user.id}, provider=${channelProvider}):`,
-            channelErr instanceof Error ? channelErr.message : String(channelErr)
-          );
-        }
-      }
-
-      publishAuditEvent({ action: "signUp", userId: result.user.id });
-
-      // 读取完整用户信息
-      const user = await this._readPublicUser(result.user.id);
-
-      return {
-        userId: result.user.id,
-        token: result.token,
-        user,
-      };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`注册失败: ${message}`);
+    // 1. 验证密码长度
+    if (input.password.length < 6) {
+      throw new Error("密码长度不能少于 6 位");
     }
+
+    // 2. 检查邮箱是否已注册
+    const existingUser = await this.config.database.findOne({
+      model: "user",
+      where: [{ field: "email", value: input.email }],
+    });
+    if (existingUser) {
+      throw new Error("该邮箱已被注册");
+    }
+
+    // 3. 哈希密码
+    const hashedPassword = await hashPassword(input.password);
+
+    // 4. 创建 user + account
+    const userId = randomUUID();
+    const now = new Date();
+
+    await this.config.database.create({
+      model: "user",
+      data: {
+        id: userId,
+        name: input.name,
+        email: input.email,
+        emailVerified: false,
+        image: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+
+    await this.config.database.create({
+      model: "account",
+      data: {
+        id: randomUUID(),
+        accountId: input.email,
+        providerId: "credential",
+        userId,
+        password: hashedPassword,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+
+    // 5. 触发 user.create.after 钩子（内联原 databaseHooks，不再依赖 better-auth 触发）
+    // ---- 在 BusinessAccount 创建之前触发，避免钩子重复创建导致 @@unique 约束冲突
+    for (const hook of this._afterUserCreateHooks) {
+      try {
+        await hook({ id: userId, email: input.email, name: input.name });
+      } catch (err) {
+        console.error("[signUp] user.create.after hook 执行失败:", err);
+      }
+    }
+
+    // 4b. 创建 BusinessAccount（原 autoCreateHooks 逻辑内联，不再依赖 hooks）
+    // ---- 检查是否已存在（onUserCreated 钩子可能已创建）
+    const existingBiz = await this.config.database.findOne({
+      model: "businessAccount",
+      where: [{ field: "authUserId", value: userId }],
+    });
+    if (!existingBiz) {
+      await this.config.database.create({
+        model: "businessAccount",
+        data: {
+          id: randomUUID(),
+          authUserId: userId,
+          displayName: input.name || input.email,
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+    }
+
+    // 6. 写入 SocialAccount 通道记录
+    const channelProvider = input.channel?.provider ?? "email";
+    const channelId = input.channel?.identifier ?? input.email;
+
+    if (channelProvider && channelId) {
+      try {
+        await this._socialService.bindToUser(userId, {
+          provider: channelProvider,
+          providerOpenid: channelId,
+        });
+      } catch (channelErr: unknown) {
+        console.warn(
+          `[signUp] 通道记录写入失败 (userId=${userId}, provider=${channelProvider}):`,
+          channelErr instanceof Error ? channelErr.message : String(channelErr)
+        );
+      }
+    }
+
+    publishAuditEvent({ action: "signUp", userId });
+
+    // 7. 创建 AuthToken（DB 级原子 upsert，D10）
+    const expiresIn = this.config.token?.expiresIn ?? 60 * 60 * 24 * 7;
+    const token = await createAuthToken(
+      this.config.database,
+      userId,
+      expiresIn,
+      input.metadata,
+    );
+
+    // 8. 读取完整用户信息并返回
+    const user = await this._readPublicUser(userId);
+
+    return {
+      userId,
+      token,
+      user,
+    };
   }
 
   async signIn(input: SignInInput): Promise<SignInResult> {
-    try {
-      const result = await this._signInEmail(input.email, input.password);
+    // 0. 速率限制：5 次/15 分钟
+    await checkRateLimit(this._signInRateLimit, input.email, 5, 15 * 60 * 1000);
 
-      publishAuditEvent({ action: "signIn", userId: result.user.id });
+    // 1. 查找用户
+    const user = await this.config.database.findOne({
+      model: "user",
+      where: [{ field: "email", value: input.email }],
+    }) as Record<string, unknown> | null;
 
-      const user = await this._readPublicUser(result.user.id);
+    // 2. 查找 credential account
+    const account = user
+      ? await this.config.database.findOne({
+          model: "account",
+          where: [
+            { field: "userId", value: user.id },
+            { field: "providerId", value: "credential" },
+          ],
+        }) as Record<string, unknown> | null
+      : null;
 
-      return {
-        userId: result.user.id,
-        token: result.token,
-        user,
-      };
-    } catch (err: unknown) {
+    // 3. 统一错误消息防枚举
+    if (!user || !account || !account.password) {
       publishAuditEvent({
         action: "signInFailed",
         metadata: { email: input.email },
       });
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`登录失败: ${message}`);
+      throw new Error("邮箱或密码错误");
     }
+
+    // 4. 校验密码
+    const isValid = await verifyPassword(account.password as string, input.password);
+    if (!isValid) {
+      publishAuditEvent({
+        action: "signInFailed",
+        metadata: { email: input.email },
+      });
+      throw new Error("邮箱或密码错误");
+    }
+
+    publishAuditEvent({ action: "signIn", userId: user.id as string });
+
+    // 5. 创建 AuthToken
+    const expiresIn = this.config.token?.expiresIn ?? 60 * 60 * 24 * 7;
+    const token = await createAuthToken(
+      this.config.database,
+      user.id as string,
+      expiresIn,
+      input.metadata,
+    );
+
+    // 6. 读取完整用户信息并返回
+    const fullUser = await this._readPublicUser(user.id as string);
+
+    return {
+      userId: user.id as string,
+      token,
+      user: fullUser,
+    };
   }
 
   async signOut(ctx: RequestContext): Promise<void> {
-    await this._signOut(ctx);
+    // 从 cookie 或 header 获取 token
+    const token = this._extractToken(ctx);
+    if (!token) return;
+
+    // 校验当前用户（获取 userId）
+    const validated = await validateToken(this.config.database, token);
+    if (validated) {
+      await revokeTokenFn(this.config.database, validated.userId, token);
+    }
+
+    // 清除 cookie 由调用方（route handler）负责
+  }
+
+  /** 从 Authorization: Bearer header 或 omni-auth.token cookie 读取 token */
+  private _extractToken(ctx: RequestContext): string | null {
+    // 1. 尝试从 Authorization header 读取
+    const authHeader = ctx.getHeader("authorization");
+    if (authHeader) {
+      const match = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (match) return match[1];
+    }
+
+    // 2. 回退到 cookie
+    const cookie = ctx.getCookie("omni-auth.token");
+    if (cookie) return cookie;
+
+    return null;
   }
 
   // ----------------------------------------------------------
@@ -443,8 +486,14 @@ export class OmniAuth {
         const syntheticEmail = this._buildChannelEmail(input.provider, input.providerOpenid);
         result = await this.signIn({ email: syntheticEmail, password: input.credential.value });
       } else {
-        // 非密码凭证：调用者已自行验证，直接创建 session
-        const token = await this._createSessionForUser(existingChannel.userId);
+        // 非密码凭证：调用者已自行验证，直接创建 AuthToken
+        const expiresIn = this.config.token?.expiresIn ?? 60 * 60 * 24 * 7;
+        const token = await createAuthToken(
+          this.config.database,
+          existingChannel.userId,
+          expiresIn,
+          input.metadata,
+        );
         const existingUserForSession = await this._readPublicUser(existingChannel.userId);
         result = { userId: existingChannel.userId, token, user: existingUserForSession };
       }
@@ -547,8 +596,8 @@ export class OmniAuth {
       allowVerification?: number;
     }
   ): Promise<SocialAccountDTO> {
-    const session = await this._getSession(ctx);
-    if (!session?.user?.id) {
+    const authCtx = await this.getContext(ctx);
+    if (!authCtx.authUserId) {
       throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
     }
 
@@ -561,11 +610,11 @@ export class OmniAuth {
       throw new Error(`该${input.provider}已被绑定`);
     }
 
-    const result = await this._socialService.bindToUser(session.user.id, input);
+    const result = await this._socialService.bindToUser(authCtx.authUserId, input);
 
     publishAuditEvent({
       action: "channelBind",
-      userId: session.user.id,
+      userId: authCtx.authUserId,
       metadata: { channel: input.provider, value: input.providerOpenid },
     });
 
@@ -577,13 +626,13 @@ export class OmniAuth {
    * 需要有效 session。
    */
   async unbindChannel(ctx: RequestContext, channelId: string): Promise<void> {
-    const session = await this._getSession(ctx);
-    if (!session?.user?.id) {
+    const authCtx = await this.getContext(ctx);
+    if (!authCtx.authUserId) {
       throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
     }
 
     // 校验该渠道属于当前用户
-    const allAccounts = await this._socialService.listByUser(session.user.id);
+    const allAccounts = await this._socialService.listByUser(authCtx.authUserId);
     const target = allAccounts.find((a) => a.id === channelId);
     if (!target) {
       throw new Error("渠道不存在");
@@ -593,7 +642,7 @@ export class OmniAuth {
 
     publishAuditEvent({
       action: "channelUnbind",
-      userId: session.user.id,
+      userId: authCtx.authUserId,
       metadata: { channel: target.provider, value: target.providerOpenid },
     });
   }
@@ -612,20 +661,6 @@ export class OmniAuth {
     }
     // OAuth 等其他渠道：生成占位邮箱
     return `${provider}_${providerOpenid.substring(0, 12)}@oauth.usercenter`;
-  }
-
-  /** 为指定用户直接创建 session（用于非密码凭证的登录） */
-  private async _createSessionForUser(userId: string): Promise<string> {
-    const token = crypto.randomUUID();
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + (this.config.session?.expiresIn ?? 60 * 60 * 24 * 7) * 1000);
-
-    await this.config.database.create({
-      model: "session",
-      data: { userId, token, expiresAt },
-    });
-
-    return token;
   }
 
   /** 从数据库读取完整用户信息并转为 PublicUser */
@@ -661,23 +696,6 @@ export class OmniAuth {
     };
   }
 
-  /**
-   * 使用 HMAC-SHA256 签名原始 session token，生成可直接设置到 cookie 的值。
-   *
-   * Better Auth 通过 ctx.setSignedCookie 在原始 token 后追加 base64 编码的
-   * HMAC 签名：`rawToken.signature`（signature = btoa(hmac) = 标准 base64）。
-   * 如果直接将原始 token 设置到 cookie 而不签名，getSession 会因为 HMAC 校验
-   * 失败而返回 null，导致"登录成功但会话无效"的 bug。
-   *
-   * 调用者应将此方法的返回值设置到 `better-auth.session_token` cookie。
-   */
-  signSessionToken(rawToken: string): string {
-    const signature = createHmac("sha256", this.config.secret)
-      .update(rawToken)
-      .digest("base64");
-    return encodeURIComponent(`${rawToken}.${signature}`);
-  }
-
   // ----------------------------------------------------------
   // 社交注册
   // ----------------------------------------------------------
@@ -708,6 +726,7 @@ export class OmniAuth {
         email: input.email,
         password: input.password,
         name: input.name,
+        metadata: input.metadata,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -743,22 +762,37 @@ export class OmniAuth {
   // 密码管理（重置 & 修改）
   // ----------------------------------------------------------
 
-  async requestPasswordReset(email: string): Promise<void> {
+  async requestPasswordReset(
+    provider: string,
+    providerOpenid: string,
+  ): Promise<void> {
     if (!this._passwordReset) {
-      throw new Error("密码重置不可用：未提供 EmailAdapter");
+      throw new Error("密码重置不可用");
     }
-    await this._passwordReset.requestReset(email);
+    // 速率限制：3 次/10 分钟
+    await checkRateLimit(
+      this._passwordResetRateLimit,
+      `${provider}:${providerOpenid}`,
+      3,
+      10 * 60 * 1000,
+    );
+    await this._passwordReset.requestReset(provider, providerOpenid);
     publishAuditEvent({
       action: "resetPasswordRequest",
-      metadata: { email },
+      metadata: { provider, providerOpenid },
     });
   }
 
-  async resetPassword(token: string, newPassword: string): Promise<void> {
+  async resetPassword(
+    provider: string,
+    providerOpenid: string,
+    code: string,
+    newPassword: string,
+  ): Promise<void> {
     if (!this._passwordReset) {
-      throw new Error("密码重置不可用：未提供 EmailAdapter");
+      throw new Error("密码重置不可用");
     }
-    await this._passwordReset.reset(token, newPassword);
+    await this._passwordReset.reset(provider, providerOpenid, code, newPassword);
     publishAuditEvent({ action: "resetPasswordDone" });
   }
 
@@ -768,14 +802,11 @@ export class OmniAuth {
     newPassword: string
   ): Promise<void> {
     if (!this._passwordReset) {
-      throw new Error("修改密码不可用：未提供 EmailAdapter");
+      throw new Error("修改密码不可用");
     }
-    await this._passwordReset.changePassword(ctx, oldPassword, newPassword);
-
-    const session = await this._getSession(ctx);
-    if (session?.user?.id) {
-      publishAuditEvent({ action: "changePassword", userId: session.user.id });
-    }
+    const authCtx = await this.requireContext(ctx);
+    await this._passwordReset.changePassword(authCtx.authUserId!, oldPassword, newPassword);
+    publishAuditEvent({ action: "changePassword", userId: authCtx.authUserId! });
   }
 
   // ----------------------------------------------------------
@@ -784,14 +815,26 @@ export class OmniAuth {
 
   async requestEmailVerification(ctx: RequestContext): Promise<void> {
     if (!this._emailVerification) {
-      throw new Error("邮箱验证不可用：未提供 EmailAdapter");
+      throw new Error("邮箱验证不可用");
     }
-    await this._emailVerification.requestVerification(ctx);
+    const authCtx = await this.requireContext(ctx);
+    // 从用户记录读取邮箱
+    const userRecord = await this.config.database.findOne({
+      model: "user",
+      where: [{ field: "id", value: authCtx.authUserId! }],
+    }) as Record<string, unknown> | null;
+    if (!userRecord || !userRecord.email) {
+      throw new Error("当前用户未绑定邮箱");
+    }
+    await this._emailVerification.requestVerification(
+      authCtx.authUserId!,
+      userRecord.email as string,
+    );
   }
 
   async verifyEmail(token: string): Promise<void> {
     if (!this._emailVerification) {
-      throw new Error("邮箱验证不可用：未提供 EmailAdapter");
+      throw new Error("邮箱验证不可用");
     }
     await this._emailVerification.verify(token);
   }
@@ -807,7 +850,8 @@ export class OmniAuth {
     if (!this._accountDeletion) {
       throw new Error("账号管理不可用");
     }
-    await this._accountDeletion.updateProfile(ctx, input);
+    const authCtx = await this.requireContext(ctx);
+    await this._accountDeletion.updateProfile(authCtx.authUserId!, input);
   }
 
   async deleteAccount(ctx: RequestContext, password: string): Promise<void> {
@@ -816,75 +860,12 @@ export class OmniAuth {
     }
 
     // 注销前获取 userId 用于审计
-    const session = await this._getSession(ctx);
-    const userId = session?.user?.id;
+    const authCtx = await this.requireContext(ctx);
+    const userId = authCtx.authUserId!;
 
-    await this._accountDeletion.deleteAccount(ctx, password);
+    await this._accountDeletion.deleteAccount(userId, password);
 
-    if (userId) {
-      publishAuditEvent({ action: "deleteAccount", userId });
-    }
-  }
-
-  // ----------------------------------------------------------
-  // Session 过期检查（触发 onSessionExpired 钩子）
-  // ----------------------------------------------------------
-
-  /**
-   * 扫描数据库中已过期的 session 并触发 onSessionExpired 回调。
-   * 建议通过定时任务（cron）或中间件周期性调用。
-   * 返回已过期的 session 数量。
-   */
-  async checkExpiredSessions(): Promise<number> {
-    if (!this._onSessionExpired) return 0;
-
-    const now = new Date();
-    const expiredSessions = await this.config.database.findMany({
-      model: "session",
-      where: [{ field: "expiresAt", value: now.toISOString(), operator: "lt" }],
-    }) as { userId: string; token: string; expiresAt: Date }[];
-
-    for (const session of expiredSessions) {
-      try {
-        await this._onSessionExpired({
-          userId: session.userId,
-          sessionToken: session.token,
-          expiredAt: session.expiresAt,
-        });
-      } catch (err) {
-        console.error(
-          `[checkExpiredSessions] onSessionExpired 回调执行失败 (userId=${session.userId}):`,
-          err
-        );
-      }
-    }
-
-    return expiredSessions.length;
-  }
-
-  // ----------------------------------------------------------
-  // Session 管理
-  // ----------------------------------------------------------
-
-  async listSessions(ctx: RequestContext) {
-    if (!this._sessionManagement) {
-      throw new Error("Session 管理不可用");
-    }
-    return this._sessionManagement.listSessions(ctx);
-  }
-
-  async revokeSession(ctx: RequestContext, sessionId: string): Promise<void> {
-    if (!this._sessionManagement) {
-      throw new Error("Session 管理不可用");
-    }
-    return this._sessionManagement.revokeSession(ctx, sessionId);
-  }
-
-  async revokeAllSessions(ctx: RequestContext): Promise<number> {
-    if (!this._sessionManagement) {
-      throw new Error("Session 管理不可用");
-    }
-    return this._sessionManagement.revokeAllSessions(ctx);
+    publishAuditEvent({ action: "deleteAccount", userId });
   }
 
   // ----------------------------------------------------------
@@ -892,13 +873,20 @@ export class OmniAuth {
   // ----------------------------------------------------------
 
   async getContext(ctx: RequestContext): Promise<AuthContext> {
-    const session = await this._getSession(ctx);
-
-    if (!session?.user?.id) {
+    // 1. 从 Authorization: Bearer header 或 omni-auth.token cookie 读取 token
+    const token = this._extractToken(ctx);
+    if (!token) {
       return { account: null, authUserId: null, socialAccounts: [], channels: [], roles: [] };
     }
 
-    const authUserId = session.user.id;
+    // 2. 校验 token
+    const validated = await validateToken(this.config.database, token);
+    if (!validated) {
+      return { account: null, authUserId: null, socialAccounts: [], channels: [], roles: [] };
+    }
+
+    // 3. 构建 AuthContext（userId 来自 token 而非 session）
+    const authUserId = validated.userId;
     const resolver = getAccountResolver();
 
     const [account, socialAccountDTOs, roles] = await Promise.all([
@@ -943,7 +931,14 @@ export class OmniAuth {
       }
     }
 
-    return { account, authUserId, socialAccounts, channels, roles };
+    return {
+      account,
+      authUserId,
+      socialAccounts,
+      channels,
+      roles,
+      tokenMetadata: validated.metadata,
+    };
   }
 
   async requireContext(ctx: RequestContext): Promise<AuthContext> {
@@ -955,6 +950,22 @@ export class OmniAuth {
       );
     }
     return authCtx;
+  }
+
+  // ----------------------------------------------------------
+  // Token 吊销
+  // ----------------------------------------------------------
+
+  /** 吊销指定 token（校验归属当前用户） */
+  async revokeToken(ctx: RequestContext, token: string): Promise<boolean> {
+    const authCtx = await this.requireContext(ctx);
+    return revokeTokenFn(this.config.database, authCtx.authUserId!, token);
+  }
+
+  /** 吊销当前用户全部 token（= 登出所有设备） */
+  async revokeAllTokens(ctx: RequestContext): Promise<number> {
+    const authCtx = await this.requireContext(ctx);
+    return revokeAllTokensFn(this.config.database, authCtx.authUserId!);
   }
 
   // ----------------------------------------------------------
@@ -992,10 +1003,25 @@ export class OmniAuth {
   async handleOAuthCallback(
     provider: string,
     code: string,
-    redirectUri: string
+    redirectUri: string,
+    state?: string,
+    codeVerifier?: string,
   ): Promise<OAuthCallbackResult> {
     const { handleOAuthCallback: handler } = await import("./oauth/handler");
-    return handler(provider, code, redirectUri);
+    const result = await handler(provider, code, redirectUri, state, codeVerifier);
+
+    // ---- OAuth 新用户创建后触发 onUserCreated 钩子（与 signUp 保持一致）
+    if (result.isNewUser) {
+      for (const hook of this._afterUserCreateHooks) {
+        try {
+          await hook({ id: result.userId });
+        } catch (e) {
+          console.error("[OAuth] onUserCreated hook error:", e);
+        }
+      }
+    }
+
+    return result;
   }
 
   // ----------------------------------------------------------
@@ -1016,13 +1042,13 @@ export class OmniAuth {
       throw new Error("渠道验证码不可用");
     }
 
-    const session = await this._getSession(ctx);
-    if (!session?.user?.id) {
+    const authCtx = await this.getContext(ctx);
+    if (!authCtx.authUserId) {
       throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
     }
 
     // 查找渠道，校验归属
-    const channels = await this._socialService.listByUser(session.user.id);
+    const channels = await this._socialService.listByUser(authCtx.authUserId);
     const channel = channels.find((c) => c.id === channelId);
     if (!channel) throw new Error("渠道不存在或不属于当前用户");
     if (!channel.allowVerification) {
@@ -1039,16 +1065,23 @@ export class OmniAuth {
       profileData: channel.profileData,
     };
 
-    await this._channelVerification.send(
-      channelId,
+    // 速率限制：3 次/10 分钟
+    await checkRateLimit(
+      this._requestCodeRateLimit,
+      `${channel.provider}:${channel.providerOpenid}`,
+      3,
+      10 * 60 * 1000,
+    );
+
+    await this._channelVerification.requestCode(
       channel.provider,
       channel.providerOpenid,
-      channelRef
+      channelRef,
     );
 
     publishAuditEvent({
       action: "verificationSent",
-      userId: session.user.id,
+      userId: authCtx.authUserId,
       metadata: { channelId, provider: channel.provider },
     });
   }
@@ -1066,7 +1099,7 @@ export class OmniAuth {
     if (!this._channelVerification) {
       throw new Error("渠道验证码不可用");
     }
-    return this._channelVerification.verify(provider, providerOpenid, code);
+    return this._channelVerification.exchangeCode(provider, providerOpenid, code);
   }
 
   /**
@@ -1123,24 +1156,18 @@ export class OmniAuth {
       /** 更新用户名（同步 user.name + businessAccount.displayName），返回更新后的用户 */
       async name(ctx: RequestContext, newName: string): Promise<PublicUser> {
         if (!self._accountDeletion) throw new Error("账号管理不可用");
-        await self._accountDeletion.updateProfile(ctx, { name: newName });
-        const session = await self._getSession(ctx);
-        if (session?.user?.id) {
-          publishAuditEvent({ action: "changeName", userId: session.user.id });
-          return self._readPublicUser(session.user.id);
-        }
-        throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
+        const authCtx = await self.requireContext(ctx);
+        await self._accountDeletion.updateProfile(authCtx.authUserId!, { name: newName });
+        publishAuditEvent({ action: "changeName", userId: authCtx.authUserId! });
+        return self._readPublicUser(authCtx.authUserId!);
       },
 
       /** 更新头像，返回更新后的用户 */
       async image(ctx: RequestContext, newImage: string): Promise<PublicUser> {
         if (!self._accountDeletion) throw new Error("账号管理不可用");
-        await self._accountDeletion.updateProfile(ctx, { image: newImage });
-        const session = await self._getSession(ctx);
-        if (session?.user?.id) {
-          return self._readPublicUser(session.user.id);
-        }
-        throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
+        const authCtx = await self.requireContext(ctx);
+        await self._accountDeletion.updateProfile(authCtx.authUserId!, { image: newImage });
+        return self._readPublicUser(authCtx.authUserId!);
       },
 
       /**
@@ -1155,12 +1182,12 @@ export class OmniAuth {
         channelId: string,
         input: { identifier: string }
       ): Promise<{ id: string; provider: string; providerOpenid: string; user: PublicUser }> {
-        const session = await self._getSession(ctx);
-        if (!session?.user?.id) {
+        const authCtx = await self.getContext(ctx);
+        if (!authCtx.authUserId) {
           throw new UnauthorizedError("UNAUTHENTICATED", "请先登录");
         }
 
-        const userId = session.user.id;
+        const userId = authCtx.authUserId;
 
         // 校验渠道归属
         const allAccounts = await self._socialService.listByUser(userId);
@@ -1217,21 +1244,6 @@ export class OmniAuth {
     registerTokenRefresher(provider, refresher);
   }
 
-  // ----------------------------------------------------------
-  // 原始 Better Auth handler（供框架适配层使用）
-  // ----------------------------------------------------------
-
-  getBetterAuthHandler() {
-    // Better Auth 的 toNextJsHandler 兼容格式
-    return this._betterAuth.handler as {
-      (req: Request): Promise<Response>;
-    };
-  }
-
-  /** 获取底层 Better Auth 实例（高级用法） */
-  get betterAuth(): BetterAuthInstance {
-    return this._betterAuth;
-  }
 }
 
 // ----------------------------------------------------------

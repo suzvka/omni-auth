@@ -1,7 +1,7 @@
 {
   "name": "omni-auth",
-  "version": "0.7.0",
-  "description": "OmniAuth — omnichannel authentication SDK, built on Better Auth, with first-class Next.js integration",
+  "version": "1.0.0",
+  "description": "OmniAuth — omnichannel authentication SDK with first-class Next.js integration",
   "author": "Omni Auth Contributors",
   "license": "MIT",
   "repository": {
@@ -65,7 +65,6 @@
     "test:watch": "vitest"
   },
   "peerDependencies": {
-    "better-auth": "^1.6.26",
     "next": ">=16"
   },
   "peerDependenciesMeta": {
@@ -77,7 +76,8 @@
     }
   },
   "dependencies": {
-    "better-auth": "^1.6.26"
+    "@better-auth/core": "~1.6.26",
+    "@better-auth/utils": "~0.4.2"
   },
   "devDependencies": {
     "@types/pg": "^8",
@@ -91,7 +91,6 @@
     "auth",
     "authentication",
     "oauth",
-    "better-auth",
     "omnichannel",
     "channel-parity"
   ]

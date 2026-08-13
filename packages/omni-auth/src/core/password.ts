@@ -1,107 +1,178 @@
 // ============================================================
-// 密码管理（重置 & 修改）
+// 密码重置与修改 — 验证码模式
+//
+// requestReset = requestCode（发到绑定渠道）
+// reset = exchangeCode + hashPassword + 更新密码 + 吊销全部 token
+// changePassword = verifyPassword（直接校验，不再假登录）+ hashPassword + 更新 + 吊销全部 token
 // ============================================================
 
-import type { BetterAuthInstance } from "../auth";
-import type { EmailAdapter } from "../adapters/email";
-import type { RequestContext } from "../adapters/request";
-import type { BetterAuthSession, SignInEmailResult } from "./betterAuthTypes";
+import { hashPassword, verifyPassword } from "@better-auth/utils/password";
+import type { DatabaseAdapter } from "../adapters/database";
+import { requestCode, exchangeCode } from "./verification-channel";
+import { revokeAllTokens } from "./token";
 import { InvalidPasswordError } from "../errors";
 
+// ---- 依赖 ----
+
 export interface PasswordResetDeps {
-  auth: BetterAuthInstance;
-  email: EmailAdapter;
-  baseUrl: string;
+    /** 数据库适配器（替代旧 BetterAuthInstance） */
+    db: DatabaseAdapter;
+    /** 验证码过期时间（预留，默认由 requestCode 决定 5 分钟） */
+    expiresIn?: number;
 }
 
+// ---- 凭证账户类型 ----
+
+interface CredentialAccount {
+    id: string;
+    userId: string;
+    providerId: string;
+    password: string;
+}
+
+interface SocialAccountRow {
+    id: string;
+    userId: string;
+    provider: string;
+    providerOpenid: string;
+}
+
+// ---- 工厂 ----
+
 export function createPasswordReset(deps: PasswordResetDeps) {
-  const { auth, email, baseUrl } = deps;
+    const { db } = deps;
 
-  return {
-    /** 请求密码重置（发送重置邮件） */
-    async requestReset(emailAddress: string): Promise<void> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (auth.api as any).forgetPassword({
-        body: {
-          email: emailAddress,
-          redirectTo: `${baseUrl}/reset-password`,
+    return {
+        /**
+         * 请求密码重置（通过渠道验证码）。
+         *
+         * 验证码通过 provider 注册的 sender 发送到 providerOpenid。
+         * 调用方需提前通过 registerVerificationSender() 注册对应渠道的发码器。
+         */
+        async requestReset(
+            provider: string,
+            providerOpenid: string
+        ): Promise<void> {
+            await requestCode(db, provider, providerOpenid);
         },
-      });
 
-      // Better Auth 内部已发送邮件（如果配置了 email 插件）
-      // 若需要自定义邮件，可在此补充发送逻辑
-    },
+        /**
+         * 执行密码重置。
+         *
+         * 流程：exchangeCode（一次性消费）→ 查找用户 → hashPassword → 更新 → 吊销全部 token。
+         *
+         * @param provider       渠道类型
+         * @param providerOpenid 渠道标识符
+         * @param code           验证码
+         * @param newPassword    新密码
+         * @returns userId
+         * @throws 验证码错误或已过期 / 未找到用户账户
+         */
+        async reset(
+            provider: string,
+            providerOpenid: string,
+            code: string,
+            newPassword: string
+        ): Promise<string> {
+            // 1. 校验并消费验证码（一次性）
+            const ok = await exchangeCode(db, provider, providerOpenid, code);
+            if (!ok) {
+                throw new Error("验证码错误或已过期");
+            }
 
-    /** 执行密码重置 */
-    async reset(token: string, newPassword: string): Promise<void> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (auth.api as any).resetPassword({
-        body: { token, newPassword },
-      });
-    },
+            // 2. 通过 socialAccount 表查找用户
+            const socialAccount = await db.findOne({
+                model: "socialAccount",
+                where: [
+                    { field: "provider", value: provider },
+                    { field: "providerOpenid", value: providerOpenid },
+                ],
+            }) as SocialAccountRow | null;
 
-    /** 自定义发送密码重置邮件 */
-    async sendCustomResetEmail(
-      emailAddress: string,
-      token: string
-    ): Promise<void> {
-      const url = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
-      await email.sendPasswordResetEmail({
-        to: emailAddress,
-        subject: "密码重置",
-        url,
-        token,
-      });
-    },
+            if (!socialAccount) {
+                throw new Error("未找到对应的用户账户");
+            }
 
-    /**
-     * 修改密码（已知旧密码，修改为新密码）。
-     * 通过 Better Auth changePassword API 完成。
-     */
-    async changePassword(
-      ctx: RequestContext,
-      oldPassword: string,
-      newPassword: string
-    ): Promise<void> {
-      // 1. 获取当前 session，拿到用户邮箱
-      const session = await auth.api.getSession({
-        headers: ctx.asHeaders ? ctx.asHeaders() : {},
-      }) as unknown as BetterAuthSession | null;
+            const userId = socialAccount.userId;
 
-      if (!session?.user?.id) {
-        throw new InvalidPasswordError("未登录，无法修改密码");
-      }
+            // 3. 查找 credential account（密码存放处）
+            const account = await db.findOne({
+                model: "account",
+                where: [
+                    { field: "userId", value: userId },
+                    { field: "providerId", value: "credential" },
+                ],
+            }) as CredentialAccount | null;
 
-      const user = session.user;
+            if (!account) {
+                throw new Error("用户未设置密码");
+            }
 
-      // 2. 验证旧密码
-      try {
-        const signInResult = await auth.api.signInEmail({
-          body: { email: user.email, password: oldPassword },
-        }) as unknown as SignInEmailResult | { error: string };
+            // 4. 哈希新密码并更新
+            const hashedPassword = await hashPassword(newPassword);
+            await db.updateOne({
+                model: "account",
+                where: [{ field: "id", value: account.id }],
+                update: {
+                    password: hashedPassword,
+                    updatedAt: new Date(),
+                },
+            });
 
-        if ("error" in signInResult) {
-          throw new InvalidPasswordError("当前密码错误");
-        }
-      } catch (err) {
-        if (err instanceof InvalidPasswordError) throw err;
-        throw new InvalidPasswordError("密码验证失败");
-      }
+            // 5. 吊销全部 token（D3：重置密码后所有登录失效）
+            await revokeAllTokens(db, userId);
 
-      // 3. 修改密码
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (auth.api as any).changePassword({
-          body: {
-            newPassword,
-            currentPassword: oldPassword,
-          },
-          headers: ctx.asHeaders ? ctx.asHeaders() : {},
-        });
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`密码修改失败: ${message}`);
-      }
-    },
-  };
+            return userId;
+        },
+
+        /**
+         * 修改密码（已知旧密码，修改为新密码）。
+         *
+         * 直接用 verifyPassword 校验旧密码，不再通过假登录验证。
+         * 修改成功后吊销全部 token（D3）。
+         *
+         * @param userId      当前用户 ID（由调用方 requireContext 提供）
+         * @param oldPassword 旧密码
+         * @param newPassword 新密码
+         * @throws InvalidPasswordError 旧密码错误
+         */
+        async changePassword(
+            userId: string,
+            oldPassword: string,
+            newPassword: string
+        ): Promise<void> {
+            // 1. 查找 credential account
+            const account = await db.findOne({
+                model: "account",
+                where: [
+                    { field: "userId", value: userId },
+                    { field: "providerId", value: "credential" },
+                ],
+            }) as CredentialAccount | null;
+
+            if (!account) {
+                throw new InvalidPasswordError("用户未设置密码");
+            }
+
+            // 2. 校验旧密码（verifyPassword: hash 在前，明文在后）
+            const isValid = await verifyPassword(account.password, oldPassword);
+            if (!isValid) {
+                throw new InvalidPasswordError("当前密码错误");
+            }
+
+            // 3. 哈希新密码并更新
+            const hashedPassword = await hashPassword(newPassword);
+            await db.updateOne({
+                model: "account",
+                where: [{ field: "id", value: account.id }],
+                update: {
+                    password: hashedPassword,
+                    updatedAt: new Date(),
+                },
+            });
+
+            // 4. 吊销全部 token（D3：修改密码后所有登录失效）
+            await revokeAllTokens(db, userId);
+        },
+    };
 }

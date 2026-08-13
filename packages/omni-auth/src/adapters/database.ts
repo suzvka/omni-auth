@@ -83,6 +83,19 @@ export interface DatabaseAdapter {
     where: WhereCondition[];
   }): Promise<number>;
 
+  /** 插入或更新（原子 upsert，用于单 token 语义）
+   *
+   * PostgreSQL 实现使用 ON CONFLICT ... DO UPDATE。
+   * 非 PG 适配器可不实现（token.ts 会检测并回退）。 */
+  upsert?(params: {
+    model: string;
+    data: Record<string, unknown>;
+    /** 冲突检测字段（如 ["userId"]） */
+    conflictOn: string[];
+    /** 冲突时更新的字段（不含 conflictOn 字段本身，由实现决定） */
+    update: Record<string, unknown>;
+  }): Promise<unknown>;
+
   /** 数据库初始化 / 健康检查（可选） */
   init?(): Promise<void>;
   disconnect?(): Promise<void>;

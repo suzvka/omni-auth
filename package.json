@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@prisma/client": "^6",
-    "better-auth": "^1.6.26",
     "omni-auth": "workspace:*",
     "next": "16.2.6",
     "react": "19.2.4",

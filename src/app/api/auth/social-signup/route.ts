@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { checkSameOriginFromHeaders, CROSS_ORIGIN_ERROR } from "@/lib/csrf";
 import { oauthCookieResponse } from "omni-auth/nextjs";
 
 // ============================================================
@@ -9,6 +10,11 @@ import { oauthCookieResponse } from "omni-auth/nextjs";
 
 export async function POST(request: Request) {
   try {
+    // CSRF 同源校验（D13）
+    if (!(await checkSameOriginFromHeaders())) {
+      return NextResponse.json({ error: CROSS_ORIGIN_ERROR }, { status: 403 });
+    }
+
     const body = await request.json();
 
     const { email, password, name, social } = body as {

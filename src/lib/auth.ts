@@ -4,21 +4,23 @@
 // createQuickAuth 一站式初始化认证 SDK：
 // - 声明式 database 配置（v0.6.0，内置 pg 驱动，零 Prisma 依赖）
 // - 自动注册 BusinessAccount 的 AccountResolver
-// - 自动设置 User 创建后的 BusinessAccount hook
+// - BusinessAccount 创建已在 SDK signUp 方法中内联（无需 hooks）
 // ============================================================
 
 import { createQuickAuth, createRouteHelpers } from "omni-auth/nextjs";
 import type { Account, DBApi } from "omni-auth";
+
+/** 应用基础 URL（CSRF 同源校验与 SDK 共用同一解析） */
+export const baseUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 
 export const auth = createQuickAuth({
   database: {
     url: process.env.DATABASE_URL!,
   },
   secret: process.env.BETTER_AUTH_SECRET ?? "changeme",
-  baseUrl: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-  session: {
+  baseUrl,
+  token: {
     expiresIn: 60 * 60 * 24 * 7,
-    updateAge: 60 * 60 * 24,
   },
   accountResolver: {
     async findByAuthUserId(authUserId: string): Promise<Account | null> {

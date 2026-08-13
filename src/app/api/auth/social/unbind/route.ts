@@ -5,10 +5,17 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { nextjsRequestContext } from "omni-auth/nextjs";
+import { checkSameOrigin, CROSS_ORIGIN_ERROR } from "@/lib/csrf";
 
 export async function DELETE(request: Request) {
   try {
     const ctx = nextjsRequestContext(await headers());
+
+    // CSRF 同源校验（D13）
+    if (!checkSameOrigin(ctx)) {
+      return NextResponse.json({ error: CROSS_ORIGIN_ERROR }, { status: 403 });
+    }
+
     await auth.requireContext(ctx);
 
     const body = await request.json();

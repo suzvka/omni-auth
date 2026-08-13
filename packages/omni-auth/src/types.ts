@@ -62,4 +62,6 @@ export interface AuthContext {
   channels: UserChannel[];
   /** 当前用户的角色列表 */
   roles: string[];
+  /** AuthToken 携带的 metadata（由客户端在登录/注册时传入） */
+  tokenMetadata?: Record<string, unknown>;
 }

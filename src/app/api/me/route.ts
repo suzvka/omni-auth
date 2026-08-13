@@ -3,18 +3,6 @@ import { routeHelpers } from "@/lib/auth";
 
 export async function GET() {
   const ctx = await routeHelpers.getContext();
-  return NextResponse.json({
-    user: ctx.account
-      ? {
-          id: ctx.account.id,
-          displayName: ctx.account.displayName,
-          status: ctx.account.status,
-          createdAt: ctx.account.createdAt,
-        }
-      : null,
-    authUserId: ctx.authUserId,
-    roles: ctx.roles,
-    channels: ctx.channels,
-    socialAccounts: ctx.socialAccounts,
-  });
+  // ---- 直接返回完整 AuthContext（含 account, tokenMetadata 等），与 client.getContext() 类型一致
+  return NextResponse.json(ctx);
 }

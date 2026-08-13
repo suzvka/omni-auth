@@ -26,8 +26,8 @@ export type AuditAction =
   | "socialBind"
   | "socialUnbind"
   | "oauthLogin"
-  | "sessionRevoked"
-  | "sessionRevokedAll"
+  | "tokenRevoked"
+  | "tokensRevokedAll"
   | "changeName"
   | "channelUpdate"
   | "verificationSent";

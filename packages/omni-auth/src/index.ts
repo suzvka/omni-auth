@@ -59,10 +59,7 @@ export type { VerificationSender } from "./core/verification-channel";
 export { registerVerificationSender, getVerificationSender } from "./core/verification-channel";
 
 // 生命周期钩子
-export type { LifecycleHooks, UserCreatedPayload, SessionCreatedPayload, SessionExpiredPayload } from "./core/lifecycle";
-
-// Session 管理
-export type { SessionInfo } from "./core/session";
+export type { LifecycleHooks, UserCreatedPayload } from "./core/lifecycle";
 
 // 账号管理
 export type { UpdateProfileInput } from "./core/account";
@@ -78,6 +75,9 @@ export { createMemoryRateLimiter, checkRateLimit } from "./core/rateLimit";
 // 审计日志
 export type { AuditEvent, AuditAction, AuditHandler } from "./core/audit";
 export { setAuditHandler, getAuditHandler, publishAuditEvent, extractAuditContext } from "./core/audit";
+
+// CSRF 同源校验
+export { isSameOrigin, createOriginCheck } from "./core/origin";
 
 // 通道映射工具
 export {

@@ -15,11 +15,11 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   external: [
-    "better-auth",
     "pg",
     "next",
     "next/headers",
     "next/server",
+    "react",
   ],
   target: "es2020",
 });

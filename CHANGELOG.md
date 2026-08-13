@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.0.0 — OmniAuth 解耦迁移：移除 better-auth 内核，改为 API 凭证模式
+
+### 重大变更（破坏性，无兼容迁移）
+
+- **移除 `better-auth` 主包依赖**：hack 清单归零（adapter 桥接、join 翻译、cookie 签名复刻、databaseHooks 合并全部删除）；仅保留 `@better-auth/utils`（scrypt 密码哈希）与 `@better-auth/core`（OAuth 2.0/OIDC 客户端）两个独立子包
+- **认证模式改为 API 凭证**：新增 `AuthToken` 表（只存 SHA-256 哈希，单 token per user，DB 级原子 upsert），删除 `Session` 表与全部会话语义（无滑动续期、无 get-session 路由、无 Edge middleware）
+- **删除的 API**：`getBetterAuthHandler`、`signSessionToken`、`auth.betterAuth`、`listSessions`/`revokeSession`/`revokeAllSessions`、`checkExpiredSessions`、`createRouteHandlers`、`createEdgeMiddleware`/`createDefaultMiddleware`、`/api/auth/[...all]` 路由
+- **新增 API**：`revokeToken` / `revokeAllTokens`；改密/重置密码自动吊销全部 token
+- **验证码访问统一原语**：`requestCode` / `exchangeCode`（一次性消费，`crypto.randomInt` 生成），注册/登录/重置密码/邮箱验证复用同一套机制
+- **安全加固**：OAuth state（CSRF）+ PKCE S256、登录/注册/发码/重置限流、写路由 Origin/Referer 同源校验（D13）、过期 token/验证码定时清理
+- cookie 名改为 `omni-auth.token`；`getContext`/`requireContext` 支持 cookie 与 `Authorization: Bearer` 两种携带方式；登录类 API 新增可选 `metadata`（token 附加信息，≤2KB）
+
+### 升级说明
+
+完整迁移指南与接口文档见 [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md)。要点：
+
+1. 数据库：三处 schema 已同步（prisma / schema.declarative.json v4 / db-push），需手动执行 `DROP TABLE IF EXISTS "Session";`
+2. middleware 改用 Node.js runtime：`export const runtime = "nodejs"`
+3. 客户端改用 `omni-auth/client` 纯 fetch 封装（无 better-auth/react）
+
 ## v0.7.0 — 合并发布包：omni-auth-nextjs 并入 omni-auth
 
 ### 重大变更

@@ -308,6 +308,40 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
       return rowCount;
     },
 
+    // ---- 原子 upsert（ON CONFLICT ... DO UPDATE） ----
+
+    async upsert({ model, data, conflictOn, update }) {
+      const dataKeys = Object.keys(data);
+      const dataValues = Object.values(data);
+      const columns = dataKeys.map(quoteIdent).join(", ");
+      const placeholders = dataKeys.map((_, i) => `$${i + 1}`).join(", ");
+
+      // 冲突检测字段（支持多字段复合唯一约束）
+      const conflictCols = conflictOn.map(quoteIdent).join(", ");
+
+      // 构建 DO UPDATE SET 子句
+      // 优先引用 INSERT 中同名参数位置（避免重复传值）
+      let paramIdx = dataValues.length + 1;
+      const setParts: string[] = [];
+      const extraValues: unknown[] = [];
+      for (const [key] of Object.entries(update)) {
+        const dataIdx = dataKeys.indexOf(key);
+        if (dataIdx !== -1) {
+          setParts.push(`${quoteIdent(key)} = $${dataIdx + 1}`);
+        } else {
+          setParts.push(`${quoteIdent(key)} = $${paramIdx++}`);
+          extraValues.push((update as Record<string, unknown>)[key]);
+        }
+      }
+
+      const sql =
+        `INSERT INTO ${quoteIdent(model)} (${columns}) VALUES (${placeholders})` +
+        ` ON CONFLICT (${conflictCols}) DO UPDATE SET ${setParts.join(", ")}` +
+        ` RETURNING *`;
+      const { rows } = await query(sql, [...dataValues, ...extraValues]);
+      return rows[0] ?? null;
+    },
+
     // ---- 生命周期 ----
 
     async init() {

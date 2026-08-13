@@ -38,16 +38,14 @@ const TABLES = [
     ],
   },
   {
-    name: "session",
+    name: "authToken",
     columns: [
       { name: "id", type: "TEXT NOT NULL", pk: true },
-      { name: "expiresAt", type: "TIMESTAMPTZ NOT NULL" },
-      { name: "token", type: "TEXT NOT NULL UNIQUE" },
-      { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-      { name: "updatedAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
+      { name: "tokenHash", type: "TEXT NOT NULL UNIQUE" },
       { name: "userId", type: "TEXT NOT NULL" },
-      { name: "ipAddress", type: "TEXT" },
-      { name: "userAgent", type: "TEXT" },
+      { name: "metadata", type: "JSONB NOT NULL DEFAULT '{}'" },
+      { name: "expiresAt", type: "TIMESTAMPTZ NOT NULL" },
+      { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
     ],
   },
   {
@@ -111,6 +109,7 @@ const TABLES = [
 ];
 
 const UNIQUE_CONSTRAINTS: { table: string; columns: string[] }[] = [
+  { table: "authToken", columns: ["userId"] },
   { table: "socialAccount", columns: ["provider", "providerOpenid"] },
 ];
 
