@@ -129,7 +129,7 @@ async function main() {
       console.log(`✅ 表 "${table.name}" 已就绪`);
 
       // 3. 为表添加缺失的列（幂等）；旧版建表（未加引号）产生的全小写列名自动修正
-      const { rows: existingCols } = await pool.query<{ column_name: string }>(
+      const { rows: existingCols } = await pool.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
         [table.name]
       );
@@ -153,7 +153,7 @@ async function main() {
             continue;
           } catch (err) {
             console.warn(
-              `   ⚠️ 修正列名 "${table.name}"."${lowerVariant}" 失败: ${(err as Error).message}`
+              `   ⚠️ 修正列名 "${table.name}"."${lowerVariant}" 失败: ${err instanceof Error ? err.message : String(err)}`
             );
             continue;
           }
@@ -165,7 +165,7 @@ async function main() {
           );
           console.log(`   ↳ 新增列 "${table.name}"."${col.name}"`);
         } catch (err) {
-          console.warn(`   ⚠️ 添加列 "${table.name}"."${col.name}" 失败: ${(err as Error).message}`);
+          console.warn(`   ⚠️ 添加列 "${table.name}"."${col.name}" 失败: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -188,7 +188,7 @@ async function main() {
     console.log("🎉 数据库 Schema 同步完成！");
 
   } catch (err) {
-    console.error("❌ 同步失败:", (err as Error).message);
+    console.error("❌ 同步失败:", err instanceof Error ? err.message : String(err));
     process.exit(1);
   } finally {
     await pool.end();
