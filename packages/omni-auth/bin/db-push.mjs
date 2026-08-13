@@ -35,7 +35,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("🔧 omni-auth db:push v2.0.0");
+  console.log("🔧 omni-auth db:push v2.0.1");
   console.log(`   连接: ${databaseUrl.replace(/\/\/.*@/, "//***@")}`);
   console.log("");
 

@@ -148,6 +148,9 @@ function buildModel(
     }
   }
 
+  // 表名映射：Prisma model 名首字母大写，实际表名以 schema.ts 为准（小写保真）
+  lines.push(`  @@map("${table.name}")`);
+
   lines.push("}");
   return lines.join("\n");
 }

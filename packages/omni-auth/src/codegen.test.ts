@@ -91,6 +91,13 @@ describe("generatePrismaSchema（Prisma schema 生成）", () => {
     expect(prisma).toContain("  updatedAt DateTime @updatedAt");
   });
 
+  it("表名通过 @@map 与 schema.ts 的小写表名保持一致", () => {
+    const prisma = generatePrismaModels(schema);
+    expect(prisma).toContain('  @@map("user")');
+    expect(prisma).toContain('  @@map("account")');
+    expect(prisma).toContain('  @@map("socialAccount")');
+  });
+
   it("关系字段生成（Account → User + User 反向）", () => {
     const prisma = generatePrismaModels(schema);
     // Account.userId 引用 User

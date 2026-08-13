@@ -38,7 +38,7 @@ for (let i = 0; i < args.length; i++) {
 // Main
 // ============================================================
 
-console.log("🔧 omni-auth codegen v2.0.0");
+console.log("🔧 omni-auth codegen v2.0.1");
 console.log(`   表数量: ${Object.keys(schema).length}`);
 
 const prismaSchema = generatePrismaSchema(schema, {

@@ -1,6 +1,6 @@
 {
   "name": "omni-auth",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "OmniAuth — omnichannel authentication SDK with first-class Next.js integration",
   "author": "Omni Auth Contributors",
   "license": "MIT",
@@ -61,7 +61,8 @@
   },
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "CHANGELOG.md"
   ],
   "bin": {
     "omni-auth": "bin/db-push.mjs",
