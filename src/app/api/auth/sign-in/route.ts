@@ -1,6 +1,6 @@
 // ============================================================
 // POST /api/auth/sign-in
-// 邮箱登录：校验密码 + 生成 AuthToken + 设置 cookie
+// 邮箱登录：仅凭证校验（用户存在 + 密码正确），不建立会话
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -15,10 +15,9 @@ export async function POST(request: Request) {
         }
 
         const body = await request.json();
-        const { email, password, metadata } = body as {
+        const { email, password } = body as {
             email?: string;
             password?: string;
-            metadata?: Record<string, unknown>;
         };
 
         if (!email || !password) {
@@ -28,17 +27,9 @@ export async function POST(request: Request) {
             );
         }
 
-        const result = await auth.signIn({ email, password, metadata });
+        const result = await auth.signIn({ email, password });
 
-        const response = NextResponse.json({ success: true, user: result.user });
-        response.cookies.set("omni-auth.token", result.token!, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
-            maxAge: 60 * 60 * 24 * 7, // 7 天
-            path: "/",
-        });
-        return response;
+        return NextResponse.json({ success: true, user: result.user });
     } catch (err) {
         return NextResponse.json(
             { error: err instanceof Error ? err.message : "服务器内部错误" },

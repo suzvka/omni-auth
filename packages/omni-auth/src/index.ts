@@ -24,9 +24,7 @@ export type { OmniAuthConfig as ChangfengAuthConfig } from "./auth";
 export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "./errors";
 
 // 类型
-export type { AuthContext, Account, PublicUser, SocialAccountBrief, UserChannel } from "./types";
-export type { AccountResolver } from "./core/resolver";
-export { setAccountResolver, getAccountResolver } from "./core/resolver";
+export type { PublicUser } from "./types";
 
 // 适配器接口
 export type { DatabaseAdapter, WhereCondition, WhereOperator, SearchCondition, OrderByCondition } from "./adapters/database";
@@ -54,19 +52,22 @@ export type { SocialAccountDTO } from "./social/types";
 export type { TokenRefresher, TokenRefreshResult, SocialAccountRef } from "./social/token";
 export { registerTokenRefresher, getTokenRefresher } from "./social/token";
 
-// 渠道验证码
-export type { VerificationSender } from "./core/verification-channel";
-export { registerVerificationSender, getVerificationSender } from "./core/verification-channel";
+// 渠道验证码（委托模式：sender 投递 + verifier 验证）
+export type { VerificationSender, VerificationVerifier } from "./core/verification-channel";
+export {
+  registerVerificationSender,
+  getVerificationSender,
+  registerVerificationVerifier,
+  getVerificationVerifier,
+} from "./core/verification-channel";
 
 // 生命周期钩子
 export type { LifecycleHooks, UserCreatedPayload } from "./core/lifecycle";
 
 // 账号管理
-export type { UpdateProfileInput } from "./core/account";
 
 // RBAC
-export type { RoleResolver, DBApi } from "./core/roles";
-export { setRoleResolver, getRoleResolver, hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
+export { hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
 
 // 速率限制
 export type { RateLimiter, RateLimitResult, RateLimitConfig } from "./core/rateLimit";

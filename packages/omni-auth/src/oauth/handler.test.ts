@@ -9,10 +9,6 @@ vi.mock("@better-auth/core/oauth2", () => ({
     validateAuthorizationCode: vi.fn(),
 }));
 
-vi.mock("../core/token", () => ({
-    createAuthToken: vi.fn(),
-}));
-
 vi.mock("../core/audit", () => ({
     publishAuditEvent: vi.fn(),
 }));
@@ -29,7 +25,6 @@ import {
     initiateOAuth,
 } from "./handler";
 import { registerOAuthProvider, clearOAuthProviders } from "./registry";
-import { createAuthToken } from "../core/token";
 import { publishAuditEvent } from "../core/audit";
 import { hashPassword } from "@better-auth/utils/password";
 import {
@@ -113,21 +108,18 @@ describe("createOAuthHandler — 基础", () => {
         db = createInMemoryDb();
         mockSocialService.findByProvider.mockReset();
         mockSocialService.bindToUser.mockReset();
-        vi.mocked(createAuthToken).mockReset();
         vi.mocked(publishAuditEvent).mockReset();
         vi.mocked(hashPassword).mockReset();
         vi.mocked(createAuthorizationURL).mockReset();
         vi.mocked(validateAuthorizationCode).mockReset();
 
         // 默认 mock 返回值
-        vi.mocked(createAuthToken).mockResolvedValue("auth_token_mock");
         vi.mocked(publishAuditEvent).mockResolvedValue(undefined);
         vi.mocked(hashPassword).mockResolvedValue("hashed_password_mock");
 
         handler = createOAuthHandler({
             db,
             socialService: mockSocialService,
-            expiresIn: 3600,
         });
     });
 
@@ -156,23 +148,20 @@ describe("createOAuthHandler — 已有绑定用户", () => {
         db = createInMemoryDb();
         mockSocialService.findByProvider.mockReset();
         mockSocialService.bindToUser.mockReset();
-        vi.mocked(createAuthToken).mockReset();
         vi.mocked(publishAuditEvent).mockReset();
         vi.mocked(hashPassword).mockReset();
         vi.mocked(validateAuthorizationCode).mockReset();
 
-        vi.mocked(createAuthToken).mockResolvedValue("auth_token_existing");
         vi.mocked(publishAuditEvent).mockResolvedValue(undefined);
         vi.mocked(hashPassword).mockResolvedValue("hashed_mock");
 
         handler = createOAuthHandler({
             db,
             socialService: mockSocialService,
-            expiresIn: 3600,
         });
     });
 
-    it("已有绑定应创建 AuthToken + 发布审计事件，返回 isNewUser=false", async () => {
+    it("已有绑定应发布审计事件，返回 isNewUser=false（不创建会话令牌）", async () => {
         // 使用 exchangeCode 兼容路径
         registerOAuthProvider({
             provider: "wechat",
@@ -199,7 +188,6 @@ describe("createOAuthHandler — 已有绑定用户", () => {
         // 返回值
         expect(result.userId).toBe("existing_user");
         expect(result.isNewUser).toBe(false);
-        expect(result.token).toBe("auth_token_existing");
         expect(result.channel).toEqual({
             id: "sa_1",
             provider: "wechat",
@@ -207,14 +195,6 @@ describe("createOAuthHandler — 已有绑定用户", () => {
             valid: 1,
             allowPasswordUpdate: 0,
         });
-
-        // createAuthToken 被调用
-        expect(createAuthToken).toHaveBeenCalledWith(
-            db,
-            "existing_user",
-            3600,
-            { provider: "wechat", isNewUser: false },
-        );
 
         // 审计事件发布
         expect(publishAuditEvent).toHaveBeenCalledWith({
@@ -286,23 +266,20 @@ describe("createOAuthHandler — 新用户注册", () => {
         db = createInMemoryDb();
         mockSocialService.findByProvider.mockReset();
         mockSocialService.bindToUser.mockReset();
-        vi.mocked(createAuthToken).mockReset();
         vi.mocked(publishAuditEvent).mockReset();
         vi.mocked(hashPassword).mockReset();
         vi.mocked(validateAuthorizationCode).mockReset();
 
-        vi.mocked(createAuthToken).mockResolvedValue("auth_token_new");
         vi.mocked(publishAuditEvent).mockResolvedValue(undefined);
         vi.mocked(hashPassword).mockResolvedValue("hashed_password_new");
 
         handler = createOAuthHandler({
             db,
             socialService: mockSocialService,
-            expiresIn: 7200,
         });
     });
 
-    it("新用户应自行创建 user+account+AuthToken+绑定+审计，返回 isNewUser=true", async () => {
+    it("新用户应自行创建 user+account+绑定+审计，返回 isNewUser=true（不创建会话令牌）", async () => {
         registerOAuthProvider({
             provider: "google",
             exchangeCode: async () => ({
@@ -329,7 +306,6 @@ describe("createOAuthHandler — 新用户注册", () => {
 
         // 返回值
         expect(result.isNewUser).toBe(true);
-        expect(result.token).toBe("auth_token_new");
         expect(result.userId).toBeDefined();
         expect(result.userId.length).toBeGreaterThan(5);
         expect(result.channel).toEqual({
@@ -353,14 +329,6 @@ describe("createOAuthHandler — 新用户注册", () => {
                 valid: 1,
                 allowPasswordUpdate: 0,
             }),
-        );
-
-        // createAuthToken 被调用
-        expect(createAuthToken).toHaveBeenCalledWith(
-            db,
-            result.userId,
-            7200,
-            { provider: "google", isNewUser: true },
         );
 
         // 审计事件发布
@@ -453,19 +421,16 @@ describe("createOAuthHandler — PKCE / state", () => {
         db = createInMemoryDb();
         mockSocialService.findByProvider.mockReset();
         mockSocialService.bindToUser.mockReset();
-        vi.mocked(createAuthToken).mockReset();
         vi.mocked(publishAuditEvent).mockReset();
         vi.mocked(hashPassword).mockReset();
         vi.mocked(validateAuthorizationCode).mockReset();
 
-        vi.mocked(createAuthToken).mockResolvedValue("auth_token_pkce");
         vi.mocked(publishAuditEvent).mockResolvedValue(undefined);
         vi.mocked(hashPassword).mockResolvedValue("hashed_pkce");
 
         handler = createOAuthHandler({
             db,
             socialService: mockSocialService,
-            expiresIn: 3600,
         });
     });
 
@@ -520,7 +485,6 @@ describe("createOAuthHandler — PKCE / state", () => {
 
         // 返回值
         expect(result.userId).toBe("pkce_user");
-        expect(result.token).toBe("auth_token_pkce");
     });
 
     it("标准 provider 未传 codeVerifier 时 validateAuthorizationCode 不含 codeVerifier", async () => {
@@ -612,7 +576,6 @@ describe("createOAuthHandler — initiateOAuth", () => {
         handler = createOAuthHandler({
             db,
             socialService: mockSocialService,
-            expiresIn: 3600,
         });
     });
 

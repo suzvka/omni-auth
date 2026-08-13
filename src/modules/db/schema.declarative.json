@@ -1,6 +1,6 @@
 {
   "database": "omni_user_center",
-  "version": 4,
+  "version": 6,
   "tables": [
     {
       "name": "User",
@@ -16,19 +16,6 @@
       "primaryKey": ["id"]
     },
     {
-      "name": "AuthToken",
-      "columns": [
-        { "name": "id", "type": "text", "required": true },
-        { "name": "tokenHash", "type": "text", "required": true, "unique": true },
-        { "name": "userId", "type": "text", "required": true },
-        { "name": "metadata", "type": "jsonb", "required": true, "default": "'{}'" },
-        { "name": "expiresAt", "type": "timestamptz", "required": true },
-        { "name": "createdAt", "type": "timestamptz", "required": true, "default": "now()" }
-      ],
-      "primaryKey": ["id"],
-      "uniqueGroups": [["userId"]]
-    },
-    {
       "name": "Account",
       "columns": [
         { "name": "id", "type": "text", "required": true },
@@ -42,18 +29,6 @@
         { "name": "refreshTokenExpiresAt", "type": "timestamptz" },
         { "name": "scope", "type": "text" },
         { "name": "password", "type": "text" },
-        { "name": "createdAt", "type": "timestamptz", "required": true, "default": "now()" },
-        { "name": "updatedAt", "type": "timestamptz", "required": true }
-      ],
-      "primaryKey": ["id"]
-    },
-    {
-      "name": "Verification",
-      "columns": [
-        { "name": "id", "type": "text", "required": true },
-        { "name": "identifier", "type": "text", "required": true },
-        { "name": "value", "type": "text", "required": true },
-        { "name": "expiresAt", "type": "timestamptz", "required": true },
         { "name": "createdAt", "type": "timestamptz", "required": true, "default": "now()" },
         { "name": "updatedAt", "type": "timestamptz", "required": true }
       ],

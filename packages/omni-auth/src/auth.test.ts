@@ -7,12 +7,10 @@ vi.mock("next/headers", () => ({
 
 import { createAuth, type OmniAuthConfig } from "./auth";
 import type { DatabaseAdapter, WhereCondition } from "./adapters/database";
-import { createRequestContext } from "./adapters/request";
-import { validateToken } from "./core/token";
 import { verifyPassword } from "@better-auth/utils/password";
 
 // ----------------------------------------------------------
-// 完整内存数据库（支持 upsert + operator: "lt"）
+// 完整内存数据库
 // ----------------------------------------------------------
 
 function createInMemoryDb(): DatabaseAdapter & {
@@ -180,8 +178,8 @@ function createTestAuth(
 // 测试
 // ----------------------------------------------------------
 
-describe("OmniAuth token 引擎", () => {
-    it("signUp 创建 user + account + AuthToken", async () => {
+describe("OmniAuth 凭证校验", () => {
+    it("signUp 创建 user + account（不创建会话令牌）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
@@ -191,8 +189,7 @@ describe("OmniAuth token 引擎", () => {
             name: "Alice",
         });
 
-        // 返回 token（非 null）
-        expect(result.token).toBeTruthy();
+        // 返回用户信息
         expect(result.userId).toBeTruthy();
         expect(result.user.email).toBe("alice@test.local");
 
@@ -207,13 +204,6 @@ describe("OmniAuth token 引擎", () => {
         expect(accounts[0].providerId).toBe("credential");
         expect(accounts[0].password).toBeTruthy();
         expect(accounts[0].password).not.toBe("password123"); // 确认不是明文
-
-        // authToken 表有 1 条记录
-        const tokens = memDb.dump("authToken");
-        expect(tokens.length).toBe(1);
-        expect(tokens[0].userId).toBe(result.userId);
-        expect(tokens[0].tokenHash).toBeTruthy();
-        expect(tokens[0].tokenHash).not.toBe(result.token); // 存的是哈希，不是明文
     });
 
     it("signUp 密码长度不足 6 位时拒绝", async () => {
@@ -236,7 +226,7 @@ describe("OmniAuth token 引擎", () => {
         ).rejects.toThrow("该邮箱已被注册");
     });
 
-    it("signUp 后 signIn 校验密码成功并返回新 token", async () => {
+    it("signUp 后 signIn 校验密码成功并返回用户", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
@@ -251,13 +241,8 @@ describe("OmniAuth token 引擎", () => {
             password: "password123",
         });
 
-        expect(signInResult.token).toBeTruthy();
         expect(signInResult.userId).toBe(signUpResult.userId);
         expect(signInResult.user.email).toBe("bob@test.local");
-
-        // 单 token per user：upsert 覆盖旧 token，authToken 表仍只有 1 条
-        const tokens = memDb.dump("authToken");
-        expect(tokens.length).toBe(1);
     });
 
     it("signIn 密码错误时拒绝", async () => {
@@ -282,168 +267,6 @@ describe("OmniAuth token 引擎", () => {
         await expect(
             auth.signIn({ email: "nobody@test.local", password: "password123" })
         ).rejects.toThrow("邮箱或密码错误");
-    });
-
-    it("getContext 通过 Bearer token 还原用户信息", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const { token, userId } = await auth.signUp({
-            email: "ctx@test.local",
-            password: "password123",
-            name: "Context",
-        });
-
-        const ctx = createRequestContext({
-            authorization: `Bearer ${token}`,
-        });
-
-        const authCtx = await auth.getContext(ctx);
-
-        expect(authCtx.authUserId).toBe(userId);
-        expect(authCtx.channels.length).toBeGreaterThanOrEqual(1); // email 通道
-    });
-
-    it("getContext 通过 cookie token 还原用户信息", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const { token, userId } = await auth.signUp({
-            email: "cookie@test.local",
-            password: "password123",
-            name: "Cookie",
-        });
-
-        const ctx = createRequestContext({
-            cookie: `omni-auth.token=${token}`,
-        });
-
-        const authCtx = await auth.getContext(ctx);
-
-        expect(authCtx.authUserId).toBe(userId);
-    });
-
-    it("getContext 无 token 时返回空上下文", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const ctx = createRequestContext({});
-        const authCtx = await auth.getContext(ctx);
-
-        expect(authCtx.authUserId).toBeNull();
-        expect(authCtx.account).toBeNull();
-        expect(authCtx.channels).toEqual([]);
-    });
-
-    it("getContext 无效 token 时返回空上下文", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const ctx = createRequestContext({
-            authorization: "Bearer invalid-token-string",
-        });
-
-        const authCtx = await auth.getContext(ctx);
-
-        expect(authCtx.authUserId).toBeNull();
-    });
-
-    it("signOut 吊销当前 token", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const { token, userId } = await auth.signUp({
-            email: "out@test.local",
-            password: "password123",
-            name: "Out",
-        });
-
-        // signOut 前 token 有效
-        const validated1 = await validateToken(memDb, token!);
-        expect(validated1?.userId).toBe(userId);
-
-        // signOut
-        const ctx = createRequestContext({
-            authorization: `Bearer ${token}`,
-        });
-        await auth.signOut(ctx);
-
-        // signOut 后 token 已失效
-        const validated2 = await validateToken(memDb, token!);
-        expect(validated2).toBeNull();
-    });
-
-    it("signOut 无 token 时静默返回", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const ctx = createRequestContext({});
-        await expect(auth.signOut(ctx)).resolves.toBeUndefined();
-    });
-
-    it("revokeAllTokens 吊销用户全部 token", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const { token, userId } = await auth.signUp({
-            email: "revoke@test.local",
-            password: "password123",
-            name: "Revoke",
-        });
-
-        const ctx = createRequestContext({
-            authorization: `Bearer ${token}`,
-        });
-
-        const count = await auth.revokeAllTokens(ctx);
-        expect(count).toBe(1);
-
-        // token 已失效
-        const validated = await validateToken(memDb, token!);
-        expect(validated).toBeNull();
-    });
-
-    it("revokeToken 吊销指定 token（校验归属）", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const { token } = await auth.signUp({
-            email: "revokeone@test.local",
-            password: "password123",
-            name: "RevokeOne",
-        });
-
-        const ctx = createRequestContext({
-            authorization: `Bearer ${token}`,
-        });
-
-        const ok = await auth.revokeToken(ctx, token!);
-        expect(ok).toBe(true);
-
-        // token 已失效
-        const validated = await validateToken(memDb, token!);
-        expect(validated).toBeNull();
-    });
-
-    it("signUp 携带 metadata，getContext 返回 tokenMetadata", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const metadata = { deviceId: "abc-123", ip: "192.168.1.1" };
-        const { token } = await auth.signUp({
-            email: "meta@test.local",
-            password: "password123",
-            name: "Meta",
-            metadata,
-        });
-
-        const ctx = createRequestContext({
-            authorization: `Bearer ${token}`,
-        });
-
-        const authCtx = await auth.getContext(ctx);
-
-        expect(authCtx.tokenMetadata).toEqual(metadata);
     });
 
     it("signUp 触发 onUserCreated hook", async () => {

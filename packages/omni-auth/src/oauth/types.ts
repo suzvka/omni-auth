@@ -70,8 +70,6 @@ export interface OAuthProviderConfig {
 }
 
 export interface OAuthCallbackResult {
-    /** AuthToken 明文（用于设置 cookie；数据库仅存哈希） */
-    token: string;
     /** 用户的 authUserId */
     userId: string;
     /** 是否为新注册用户 */

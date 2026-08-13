@@ -3,12 +3,10 @@
 //
 // createQuickAuth 一站式初始化认证 SDK：
 // - 声明式 database 配置（SDK 内置 pg 驱动，零 ORM 依赖）
-// - 通过 accountResolver 解析 BusinessAccount 业务账户
-// - BusinessAccount 由 SDK signUp 内联创建
+// - 仅负责凭证校验（用户是否存在 + 密码是否正确），不维护会话
 // ============================================================
 
-import { createQuickAuth, createRouteHelpers } from "omni-auth/nextjs";
-import type { Account, DBApi } from "omni-auth";
+import { createQuickAuth } from "omni-auth/nextjs";
 
 /** 应用基础 URL（CSRF 同源校验与 SDK 共用同一解析） */
 export const baseUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
@@ -19,37 +17,4 @@ export const auth = createQuickAuth({
   },
   secret: process.env.BETTER_AUTH_SECRET ?? "changeme",
   baseUrl,
-  token: {
-    expiresIn: 60 * 60 * 24 * 7,
-  },
-  accountResolver: {
-    async findByAuthUserId(authUserId: string): Promise<Account | null> {
-      const record = await auth.db.findOne({
-        model: "businessAccount",
-        where: [{ field: "authUserId", value: authUserId }],
-      }) as Record<string, unknown> | null;
-      if (!record) return null;
-      return {
-        id: record.id as string,
-        authUserId: record.authUserId as string,
-        displayName: record.displayName as string,
-        status: record.status as string,
-        createdAt: record.createdAt as Date,
-        updatedAt: record.updatedAt as Date,
-      };
-    },
-  },
-  // roleResolver 接收 SDK 注入的 db，无需裸调 prisma
-  roleResolver: {
-    async getRolesForUser(authUserId: string, db?: DBApi): Promise<string[]> {
-      if (!db) return [];
-      const user = await db.findOne({
-        model: "user",
-        where: [{ field: "id", value: authUserId }],
-      }) as Record<string, unknown> | null;
-      return user && user.role ? [user.role as string] : [];
-    },
-  },
 });
-
-export const routeHelpers = createRouteHelpers(auth);

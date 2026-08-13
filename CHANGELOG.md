@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.1.0 — 渠道验证切换为委托模式（全渠道平权）
+
+### 重大变更（破坏性）
+
+- **验证码原语委托化**：`exchangeCode`（本地一次性消费）改为 `verifyCode`（委托渠道注册的 verifier 验证），库无条件透传结果；新增 `VerificationVerifier` 契约与 `registerVerificationVerifier` 注册入口
+- **`requestCode` 不再写库**：删除 verification 表读写、TTL、过期清理逻辑；改为返回 6 位种子码（`crypto.randomInt`），`sender` 投递变为可选（未注册仅返回码，由调用方自行投递/派生 URL）
+- **删除邮箱验证特化模块**：移除 `createEmailVerification`、`auth.verifyEmail`、`EmailAdapter`（全渠道平权，邮箱链接验证由上层用种子码自行实现，`user.emailVerified` 字段保留）
+- **删除 `verification` 表**：schema.declarative.json v6 / db-push 同步移除；`src/instrumentation.ts` 过期清理任务一并删除
+- **`resetPassword` 行为变化**：验证依赖上层已注册对应渠道的 verifier，未注册抛错；验证码 TTL、一次性消费、防重放全部上移到渠道实现方
+
+### 新增 API
+
+- `auth.requestChannelCode(provider, providerOpenid, channelRef?)`：返回种子码
+- `auth.registerVerificationVerifier(provider, verifier)`；`registerVerificationVerifier` / `getVerificationVerifier` 亦从 `omni-auth` 导出
+
 ## v1.0.0 — OmniAuth 解耦迁移：移除 better-auth 内核，改为 API 凭证模式
 
 ### 重大变更（破坏性，无兼容迁移）

@@ -1,6 +1,6 @@
 // ============================================================
 // POST /api/auth/sign-up
-// 邮箱注册：创建用户 + 生成 AuthToken + 设置 cookie
+// 邮箱注册：创建用户，不建立会话
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -15,11 +15,10 @@ export async function POST(request: Request) {
         }
 
         const body = await request.json();
-        const { email, password, name, metadata } = body as {
+        const { email, password, name } = body as {
             email?: string;
             password?: string;
             name?: string;
-            metadata?: Record<string, unknown>;
         };
 
         if (!email || !password || !name) {
@@ -29,17 +28,9 @@ export async function POST(request: Request) {
             );
         }
 
-        const result = await auth.signUp({ email, password, name, metadata });
+        const result = await auth.signUp({ email, password, name });
 
-        const response = NextResponse.json({ success: true, user: result.user });
-        response.cookies.set("omni-auth.token", result.token!, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
-            maxAge: 60 * 60 * 24 * 7, // 7 天
-            path: "/",
-        });
-        return response;
+        return NextResponse.json({ success: true, user: result.user });
     } catch (err) {
         return NextResponse.json(
             { error: err instanceof Error ? err.message : "服务器内部错误" },

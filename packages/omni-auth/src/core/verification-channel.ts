@@ -1,46 +1,49 @@
 // ============================================================
-// 渠道验证码原语 — requestCode / exchangeCode
+// 渠道验证码原语 — requestCode / verifyCode（委托模式）
 //
-// 密码重置等场景复用本原语；邮箱验证为独立实现（core/verification.ts）。
-// identifier 命名空间：channel:{provider}:{providerOpenid}
-// 验证码生成使用 crypto.randomInt（密码学安全）。
-// exchangeCode 一次性消费（成功即删除）。
-// requestCode 发送前清理同 identifier 过期记录。
+// 全渠道平权：库不内置任何渠道特化逻辑，只做编排——
+// 1. requestCode：生成密码学安全的 6 位种子码，可选调用
+//    sender 投递（未注册则仅返回码，由上层自行投递/派生 URL）。
+// 2. verifyCode：委托渠道注册的 verifier 判定验证结果，库
+//    无条件透传返回值，不做任何状态存储。
+// 验证码的存储、TTL、一次性消费、防重放均由渠道实现方自行保证。
 // ============================================================
 
-import { randomInt, randomUUID } from "crypto";
-import type { DatabaseAdapter } from "../adapters/database";
+import { randomInt } from "crypto";
 import type { SocialAccountRef } from "../social/token";
 
 // ---- 类型 ----
 
-/** 验证码发送器：由 provider 实现方注册 */
+/** 验证码投递器（可选）：由 provider 实现方注册，负责把库生成的种子码投递给渠道 */
 export interface VerificationSender {
     /**
-     * 向指定渠道发送验证码。
+     * 向指定渠道投递验证码。
      *
      * @param channel  渠道引用（含 providerOpenid / accessToken 等）
-     * @param code     生成的验证码
+     * @param code     库生成的种子码
      */
     send(channel: SocialAccountRef, code: string): Promise<void>;
 }
 
-/** 验证码存储记录（复用 Verification 表结构） */
-interface VerificationRecord {
-    id: string;
-    identifier: string;
-    value: string;
-    expiresAt: Date;
+/** 验证码验证器（必须）：由 provider 实现方注册，渠道权威判定验证结果 */
+export interface VerificationVerifier {
+    /**
+     * 验证用户提交的验证码。
+     *
+     * 验证码的状态（存储、TTL、一次性消费、防重放）由实现方自行管理，
+     * 库无条件透传验证结果。
+     *
+     * @param channel  渠道引用（含 providerOpenid / accessToken 等）
+     * @param code     用户提交的验证码
+     * @returns 验证是否通过
+     */
+    verify(channel: SocialAccountRef, code: string): Promise<boolean>;
 }
-
-// ---- 常量 ----
-
-/** 验证码 TTL：5 分钟 = 300 秒 */
-const CODE_TTL_MS = 5 * 60 * 1000;
 
 // ---- 注册表 ----
 
 const senderRegistry = new Map<string, VerificationSender>();
+const verifierRegistry = new Map<string, VerificationVerifier>();
 
 export function registerVerificationSender(
     provider: string,
@@ -55,14 +58,22 @@ export function getVerificationSender(
     return senderRegistry.get(provider);
 }
 
-// ---- 纯辅助 ----
-
-/** 构造 identifier：channel:{provider}:{providerOpenid} */
-function buildIdentifier(provider: string, providerOpenid: string): string {
-    return `channel:${provider}:${providerOpenid}`;
+export function registerVerificationVerifier(
+    provider: string,
+    verifier: VerificationVerifier
+): void {
+    verifierRegistry.set(provider, verifier);
 }
 
-/** 当调用方未提供完整渠道引用时，构造最小 SocialAccountRef 供 sender 使用 */
+export function getVerificationVerifier(
+    provider: string
+): VerificationVerifier | undefined {
+    return verifierRegistry.get(provider);
+}
+
+// ---- 纯辅助 ----
+
+/** 当调用方未提供完整渠道引用时，构造最小 SocialAccountRef 供实现方使用 */
 function buildMinimalRef(
     provider: string,
     providerOpenid: string
@@ -81,137 +92,85 @@ function buildMinimalRef(
 // ---- 原语 ----
 
 /**
- * 向指定渠道请求验证码。
+ * 向指定渠道请求验证码（生成种子码）。
  *
  * 流程：
- * 1. 查找 provider 注册的 sender（未注册则抛错）
- * 2. 清理同 identifier 的过期记录（deleteMany expiresAt < now）
- * 3. crypto.randomInt 生成 6 位验证码（密码学安全）
- * 4. 存入 verification 表（TTL 5 分钟）
- * 5. 调用 sender.send() 发送
+ * 1. crypto.randomInt 生成 6 位种子码（密码学安全）
+ * 2. 若已注册 sender，则调用 sender.send() 投递
+ * 3. 返回种子码（上层可用其派生 URL / token 等）
  *
- * @param db            数据库适配器
- * @param provider      渠道类型（email / phone / wechat 等）
+ * sender 未注册时不抛错：仅返回码，投递由上层自行完成。
+ *
+ * @param provider       渠道类型（email / phone / wechat 等）
  * @param providerOpenid 渠道标识符（邮箱地址、手机号、openid 等）
- * @param channelRef    可选完整渠道引用；不提供则构造最小引用
+ * @param channelRef     可选完整渠道引用；不提供则构造最小引用
+ * @returns 生成的种子码
  */
 export async function requestCode(
-    db: DatabaseAdapter,
     provider: string,
     providerOpenid: string,
     channelRef?: SocialAccountRef
-): Promise<void> {
+): Promise<string> {
+    const code = randomInt(100000, 1000000).toString();
+    const ref = channelRef ?? buildMinimalRef(provider, providerOpenid);
+
     const sender = senderRegistry.get(provider);
-    if (!sender) {
-        throw new Error(`渠道 "${provider}" 未注册验证码发送器`);
+    if (sender) {
+        await sender.send(ref, code);
     }
 
-    const identifier = buildIdentifier(provider, providerOpenid);
-    const now = new Date();
-
-    // 清理同 identifier 的过期记录
-    await db.deleteMany({
-        model: "verification",
-        where: [
-            { field: "identifier", value: identifier },
-            { field: "expiresAt", value: now, operator: "lt" },
-        ],
-    });
-
-    // 密码学安全 6 位验证码 [100000, 1000000)
-    const code = randomInt(100000, 1000000).toString();
-    const expiresAt = new Date(now.getTime() + CODE_TTL_MS);
-
-    // 存入 verification 表
-    await db.create({
-        model: "verification",
-        data: {
-            id: randomUUID(),
-            identifier,
-            value: code,
-            expiresAt,
-        },
-    });
-
-    // 调度发送
-    const ref = channelRef ?? buildMinimalRef(provider, providerOpenid);
-    await sender.send(ref, code);
+    return code;
 }
 
 /**
- * 校验并消费验证码（一次性）。
+ * 委托渠道验证用户提交的验证码。
  *
  * 流程：
- * 1. findOne 同时匹配 identifier + value（精确单条查询，非 findMany + 循环）
- * 2. 校验 expiresAt > now（过期则返回 false，不删除）
- * 3. 成功即删除该记录（一次性消费）→ 返回 true
- * 4. 不存在或过期 → 返回 false
+ * 1. 查找 provider 注册的 verifier（未注册则抛错）
+ * 2. 调用 verifier.verify() 并透传验证结果
  *
- * @param db            数据库适配器
- * @param provider      渠道类型
+ * @param provider       渠道类型
  * @param providerOpenid 渠道标识符
- * @param code          待校验的验证码
- * @returns 校验是否通过
+ * @param code           用户提交的验证码
+ * @param channelRef     可选完整渠道引用；不提供则构造最小引用
+ * @returns 渠道返回的验证结果
  */
-export async function exchangeCode(
-    db: DatabaseAdapter,
+export async function verifyCode(
     provider: string,
     providerOpenid: string,
-    code: string
+    code: string,
+    channelRef?: SocialAccountRef
 ): Promise<boolean> {
-    const identifier = buildIdentifier(provider, providerOpenid);
-    const now = Date.now();
-
-    // 精确匹配 identifier + value
-    const record = await db.findOne({
-        model: "verification",
-        where: [
-            { field: "identifier", value: identifier },
-            { field: "value", value: code },
-        ],
-    }) as VerificationRecord | null;
-
-    if (!record) return false;
-
-    // 校验未过期
-    const expiresAt = record.expiresAt as Date;
-    if (expiresAt.getTime() <= now) return false;
-
-    // 一次性消费：删除记录
-    await db.deleteOne({
-        model: "verification",
-        where: [{ field: "id", value: record.id }],
-    });
-
-    return true;
+    const verifier = verifierRegistry.get(provider);
+    if (!verifier) {
+        throw new Error(`渠道 "${provider}" 未注册验证码验证器`);
+    }
+    const ref = channelRef ?? buildMinimalRef(provider, providerOpenid);
+    return verifier.verify(ref, code);
 }
 
-// ---- 工厂（auth.ts 构造时使用，绑定 db 闭包） ----
+// ---- 工厂（auth.ts 构造时使用） ----
 
-export interface ChannelVerificationDeps {
-    db: DatabaseAdapter;
-}
-
-export function createChannelVerification(deps: ChannelVerificationDeps) {
-    const { db } = deps;
-
+/** 渠道验证码编排器：生成种子码 + 委托验证，无状态、无 db 依赖 */
+export function createChannelVerification() {
     return {
-        /** 向指定渠道请求验证码 */
+        /** 生成种子码并（可选）投递，返回种子码 */
         requestCode(
             provider: string,
             providerOpenid: string,
             channelRef?: SocialAccountRef
-        ): Promise<void> {
-            return requestCode(db, provider, providerOpenid, channelRef);
+        ): Promise<string> {
+            return requestCode(provider, providerOpenid, channelRef);
         },
 
-        /** 校验并消费验证码（一次性） */
-        exchangeCode(
+        /** 委托渠道验证验证码 */
+        verifyCode(
             provider: string,
             providerOpenid: string,
-            code: string
+            code: string,
+            channelRef?: SocialAccountRef
         ): Promise<boolean> {
-            return exchangeCode(db, provider, providerOpenid, code);
+            return verifyCode(provider, providerOpenid, code, channelRef);
         },
     };
 }

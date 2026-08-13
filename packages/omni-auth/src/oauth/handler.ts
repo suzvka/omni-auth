@@ -2,7 +2,7 @@
 // OAuth 回调处理逻辑 — state/PKCE + @better-auth/core/oauth2
 //
 // 发起授权: 生成 state + code_verifier → 签名 cookie → 授权 URL
-// 回调: 读 cookie → 验签 → 比对 state → PKCE 换 token → 创建 AuthToken
+// 回调: 读 cookie → 验签 → 比对 state → PKCE 换 token → 用户查找/创建 + 渠道绑定
 // ============================================================
 
 import { randomBytes, randomUUID } from "crypto";
@@ -13,14 +13,8 @@ import {
 import type { DatabaseAdapter } from "../adapters/database";
 import type { OAuthCallbackResult } from "./types";
 import { getOAuthProvider } from "./registry";
-import { createAuthToken } from "../core/token";
 import { publishAuditEvent } from "../core/audit";
 import { hashPassword } from "@better-auth/utils/password";
-
-// ---- 常量 ----
-
-/** 默认 AuthToken 有效期：7 天（秒） */
-const DEFAULT_TOKEN_EXPIRES_IN = 7 * 24 * 60 * 60;
 
 // ---- 类型 ----
 
@@ -88,15 +82,13 @@ function generatePlaceholderEmail(provider: string, openid: string): string {
  *
  * 自行创建 user / account / businessAccount 记录（不依赖第三方 auth 内核）；
  * 通过 @better-auth/core/oauth2 完成授权 URL 生成与 code 交换（含 state/PKCE）；
- * 登录成功后创建 AuthToken 并发布 oauthLogin 审计事件。
+ * 登录成功后发布 oauthLogin 审计事件。不创建任何会话令牌。
  */
 export function createOAuthHandler(deps: {
     db: DatabaseAdapter;
     socialService: SocialServiceForOAuth;
-    expiresIn?: number;
 }): OAuthHandler {
     const { db, socialService } = deps;
-    const expiresIn = deps.expiresIn ?? DEFAULT_TOKEN_EXPIRES_IN;
 
     // ---- initiateOAuth: 发起授权 ----
 
@@ -222,12 +214,8 @@ export function createOAuthHandler(deps: {
         );
 
         if (existingSocial) {
-            // 已有绑定: 创建 AuthToken + 审计
+            // 已有绑定: 审计（不创建会话令牌）
             const userId = existingSocial.userId;
-            const token = await createAuthToken(db, userId, expiresIn, {
-                provider,
-                isNewUser: false,
-            });
 
             await publishAuditEvent({
                 action: "oauthLogin",
@@ -240,7 +228,6 @@ export function createOAuthHandler(deps: {
             });
 
             return {
-                token,
                 userId,
                 isNewUser: false,
                 channel: {
@@ -314,12 +301,6 @@ export function createOAuthHandler(deps: {
             allowPasswordUpdate: 0,
         });
 
-        // 创建 AuthToken
-        const token = await createAuthToken(db, userId, expiresIn, {
-            provider,
-            isNewUser: true,
-        });
-
         await publishAuditEvent({
             action: "oauthLogin",
             userId,
@@ -331,7 +312,6 @@ export function createOAuthHandler(deps: {
         });
 
         return {
-            token,
             userId,
             isNewUser: true,
             channel: {

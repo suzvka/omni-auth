@@ -228,12 +228,14 @@ export const routeHelpers = createRouteHelpers(auth);
 | `change.name` | `(ctx, newName) => Promise<PublicUser>` | 改名（同步 BusinessAccount.displayName） |
 | `change.image` | `(ctx, newImage) => Promise<PublicUser>` | 改头像 |
 
-**验证码（统一原语：发码 + 一次性消费）**
+**验证码（委托模式：库生成种子码 + 渠道权威验证）**
 
 | 方法 | 签名 | 说明 |
 |---|---|---|
-| `sendVerificationCode` | `(ctx, channelId) => Promise<void>` | 向指定渠道发码（需登录；限流 3 次/10min；需先注册 sender） |
-| `verifyChannelCode` | `(provider, providerOpenid, code) => Promise<boolean>` | 校验并一次性消费验证码（不要求登录态）；码 5 分钟过期 |
+| `requestChannelCode` | `(provider, providerOpenid, channelRef?) => Promise<string>` | 生成 6 位种子码（`crypto.randomInt`）；已注册 sender 则投递，否则仅返回码由调用方自行投递/派生 URL |
+| `verifyChannelCode` | `(provider, providerOpenid, code, channelRef?) => Promise<boolean>` | 委托渠道注册的 verifier 验证，库无条件透传结果（未注册 verifier 抛错） |
+| `registerVerificationSender` | `(provider, sender) => void` | 注册投递器（可选） |
+| `registerVerificationVerifier` | `(provider, verifier) => void` | 注册验证器（必须，否则 verify 抛错） |
 
 **密码**
 
@@ -245,10 +247,10 @@ export const routeHelpers = createRouteHelpers(auth);
 
 **邮箱验证 / 账号**
 
+> 邮箱链接验证已移出 SDK（全渠道平权）：上层用 `requestChannelCode` 的种子码自行派生 URL key、发送链接并验证，成功后直接 `auth.db.updateOne` 置 `emailVerified`，或走 `verifyChannelCode` 委托契约。
+
 | 方法 | 签名 | 说明 |
 |---|---|---|
-| `requestEmailVerification` | `(ctx) => Promise<void>` | 发送邮箱验证邮件（token 1 小时有效，一次性） |
-| `verifyEmail` | `(token) => Promise<void>` | 校验邮箱验证 token |
 | `updateProfile` | `(ctx, { name?, image? }) => Promise<void>` | 更新个人资料 |
 | `deleteAccount` | `(ctx, password) => Promise<void>` | 注销账号（需密码验证，级联删除） |
 
@@ -458,16 +460,25 @@ export async function register() {
 }
 ```
 
-### 9.4 验证码发送器注册
+### 9.4 渠道验证码注册（委托模式）
 
 ```ts
+// 投递器（可选）：未注册则 requestChannelCode 仅返回种子码
 auth.registerVerificationSender("email", {
   async send(channel, code) { /* 调用你的邮件服务 */ },
 });
 auth.registerVerificationSender("phone", { /* 短信服务 */ });
+
+// 验证器（必须）：渠道权威验证，库无条件透传结果
+auth.registerVerificationVerifier("email", {
+  async verify(channel, code) {
+    // 你自行管理验证码的存储 / TTL / 一次性消费 / 防重放
+    return myEmailService.checkCode(channel.providerOpenid, code);
+  },
+});
 ```
 
-验证码为 6 位数字（`crypto.randomInt` 密码学安全生成），5 分钟过期，一次性消费，重发时自动清理同 identifier 的过期记录。
+种子码为 6 位数字（`crypto.randomInt` 密码学安全生成）；验证码的 TTL、一次性消费、防重放全部由渠道实现方负责，库不做任何状态存储。
 
 ---
 

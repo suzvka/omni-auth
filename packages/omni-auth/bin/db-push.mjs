@@ -38,17 +38,6 @@ const TABLES = [
     ],
   },
   {
-    name: "authToken",
-    columns: [
-      { name: "id", type: "TEXT NOT NULL", pk: true },
-      { name: "tokenHash", type: "TEXT NOT NULL UNIQUE" },
-      { name: "userId", type: "TEXT NOT NULL" },
-      { name: "metadata", type: "JSONB NOT NULL DEFAULT '{}'" },
-      { name: "expiresAt", type: "TIMESTAMPTZ NOT NULL" },
-      { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-    ],
-  },
-  {
     name: "account",
     columns: [
       { name: "id", type: "TEXT NOT NULL", pk: true },
@@ -62,17 +51,6 @@ const TABLES = [
       { name: "refreshTokenExpiresAt", type: "TIMESTAMPTZ" },
       { name: "scope", type: "TEXT" },
       { name: "password", type: "TEXT" },
-      { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-      { name: "updatedAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-    ],
-  },
-  {
-    name: "verification",
-    columns: [
-      { name: "id", type: "TEXT NOT NULL", pk: true },
-      { name: "identifier", type: "TEXT NOT NULL" },
-      { name: "value", type: "TEXT NOT NULL" },
-      { name: "expiresAt", type: "TIMESTAMPTZ NOT NULL" },
       { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
       { name: "updatedAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
     ],
@@ -108,8 +86,7 @@ const TABLES = [
   },
 ];
 
-const UNIQUE_CONSTRAINTS: { table: string; columns: string[] }[] = [
-  { table: "authToken", columns: ["userId"] },
+const UNIQUE_CONSTRAINTS = [
   { table: "socialAccount", columns: ["provider", "providerOpenid"] },
 ];
 

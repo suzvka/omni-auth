@@ -42,11 +42,6 @@
       "types": "./dist/nextjs/index.d.ts",
       "import": "./dist/nextjs/index.js",
       "require": "./dist/nextjs/index.cjs"
-    },
-    "./middleware": {
-      "types": "./dist/nextjs/middleware.d.ts",
-      "import": "./dist/nextjs/middleware.js",
-      "require": "./dist/nextjs/middleware.cjs"
     }
   },
   "files": [

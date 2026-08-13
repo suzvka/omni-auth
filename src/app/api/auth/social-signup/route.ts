@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { checkSameOriginFromHeaders, CROSS_ORIGIN_ERROR } from "@/lib/csrf";
-import { oauthCookieResponse } from "omni-auth/nextjs";
 
 // ============================================================
 // POST /api/auth/social-signup
@@ -62,10 +61,11 @@ export async function POST(request: Request) {
       },
     });
 
-    return oauthCookieResponse(auth, {
-      token: result.token,
+    return NextResponse.json({
+      success: true,
       userId: result.userId,
       isNewUser: result.isNewUser,
+      channel: result.channel,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "服务器内部错误";

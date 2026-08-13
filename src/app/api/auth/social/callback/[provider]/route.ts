@@ -1,9 +1,9 @@
 // POST /api/auth/social/callback/[provider]
 // 通用 OAuth 回调端点。platform 由 URL 动态路由决定。
+// 完成用户查找/创建与渠道绑定，不建立会话（不设置任何 cookie）。
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { oauthCookieResponse } from "omni-auth/nextjs";
 
 export async function POST(
   request: Request,
@@ -33,11 +33,12 @@ export async function POST(
     }
 
     const result = await auth.handleOAuthCallback(provider, code, redirectUri);
-    return oauthCookieResponse(auth, {
-      token: result.token,
+    return NextResponse.json({
+      success: true,
       userId: result.userId,
       isNewUser: result.isNewUser,
-    }, { channel: result.channel });
+      channel: result.channel,
+    });
   } catch (err) {
     console.error("[social/callback]", err);
     const message = err instanceof Error ? err.message : "服务器内部错误";

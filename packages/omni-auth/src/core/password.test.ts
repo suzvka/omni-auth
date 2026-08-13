@@ -1,14 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { hashPassword, verifyPassword } from "@better-auth/utils/password";
 import { createPasswordReset } from "./password";
-import { registerVerificationSender } from "./verification-channel";
-import type { VerificationSender } from "./verification-channel";
-import { InvalidPasswordError } from "../errors";
+import { registerVerificationSender, registerVerificationVerifier } from "./verification-channel";
+import type { VerificationSender, VerificationVerifier } from "./verification-channel";
 import type { DatabaseAdapter, WhereCondition } from "../adapters/database";
 import type { SocialAccountRef } from "../social/token";
 
 // ============================================================
-// 内存 Mock DatabaseAdapter（参考 token.test.ts）
+// 内存 Mock DatabaseAdapter
 // ============================================================
 
 function toTimestamp(val: unknown): number {
@@ -132,14 +131,28 @@ function createMockDB(): MockDB {
 }
 
 // ============================================================
-// Mock 验证码发送器
+// Mock 验证码投递器 / 验证器（委托模式：状态由实现方管理）
 // ============================================================
 
 let sentCode: string | null = null;
+let sentAt: number | null = null;
+
+/** 模拟渠道侧的验证码 TTL */
+const MOCK_TTL_MS = 5 * 60 * 1000;
 
 const mockSender: VerificationSender = {
     async send(_channel: SocialAccountRef, code: string) {
         sentCode = code;
+        sentAt = Date.now();
+    },
+};
+
+const mockVerifier: VerificationVerifier = {
+    async verify(_channel: SocialAccountRef, code: string) {
+        // 模拟渠道权威验证：码匹配且未过期
+        if (sentCode !== code) return false;
+        if (sentAt == null || Date.now() - sentAt > MOCK_TTL_MS) return false;
+        return true;
     },
 };
 
@@ -159,7 +172,9 @@ describe("createPasswordReset", () => {
     beforeEach(async () => {
         db = createMockDB();
         sentCode = null;
+        sentAt = null;
         registerVerificationSender(PROVIDER, mockSender);
+        registerVerificationVerifier(PROVIDER, mockVerifier);
 
         // 预置：用户
         db._createRaw("user", {
@@ -194,39 +209,18 @@ describe("createPasswordReset", () => {
             createdAt: new Date(),
             updatedAt: new Date(),
         });
-
-        // 预置：authToken 记录（用于验证吊销）
-        db._createRaw("authToken", {
-            id: "tok-1",
-            tokenHash: "hash-1",
-            userId: USER_ID,
-            metadata: {},
-            expiresAt: new Date(Date.now() + 3600_000),
-            createdAt: new Date(),
-        });
-        db._createRaw("authToken", {
-            id: "tok-2",
-            tokenHash: "hash-2",
-            userId: USER_ID,
-            metadata: {},
-            expiresAt: new Date(Date.now() + 3600_000),
-            createdAt: new Date(),
-        });
     });
 
     // ---- reset ----
 
     describe("reset", () => {
-        it("有效验证码 + 新密码 → 密码更新 + 全部 token 吊销 + 返回 userId", async () => {
+        it("有效验证码 + 新密码 → 密码更新 + 返回 userId", async () => {
             const pr = createPasswordReset({ db });
 
             // 1. 请求重置（发码）
             await pr.requestReset(PROVIDER, OPENID);
             const code = sentCode!;
             expect(code).toMatch(/^\d{6}$/);
-
-            // 重置前：2 个 token
-            expect(db._count("authToken")).toBe(2);
 
             // 2. 执行重置
             const returnedUserId = await pr.reset(
@@ -241,12 +235,6 @@ describe("createPasswordReset", () => {
             const account = db._records("account")[0];
             expect(await verifyPassword(account.password as string, NEW_PASSWORD)).toBe(true);
             expect(await verifyPassword(account.password as string, OLD_PASSWORD)).toBe(false);
-
-            // 4. 全部 token 已吊销
-            expect(db._count("authToken")).toBe(0);
-
-            // 5. 验证码已被一次性消费
-            expect(db._count("verification")).toBe(0);
         });
 
         it("无效验证码 → 抛错且不修改密码", async () => {
@@ -259,20 +247,16 @@ describe("createPasswordReset", () => {
             // 密码未变：旧密码仍可验证
             const account = db._records("account")[0];
             expect(await verifyPassword(account.password as string, OLD_PASSWORD)).toBe(true);
-
-            // token 未被吊销
-            expect(db._count("authToken")).toBe(2);
         });
 
-        it("验证码已过期 → 抛错", async () => {
+        it("验证码已过期（渠道侧判定）→ 抛错", async () => {
             const pr = createPasswordReset({ db });
 
             await pr.requestReset(PROVIDER, OPENID);
             const code = sentCode!;
 
-            // 手动把验证码记录改为过期
-            const records = db._records("verification");
-            records[0].expiresAt = new Date(Date.now() - 60_000);
+            // 模拟渠道侧已过 TTL
+            sentAt = Date.now() - MOCK_TTL_MS - 60_000;
 
             await expect(
                 pr.reset(PROVIDER, OPENID, code, NEW_PASSWORD)
@@ -303,64 +287,6 @@ describe("createPasswordReset", () => {
             await expect(
                 pr.reset(PROVIDER, OPENID, code, NEW_PASSWORD)
             ).rejects.toThrow("用户未设置密码");
-        });
-    });
-
-    // ---- changePassword ----
-
-    describe("changePassword", () => {
-        it("旧密码正确 → 密码更新 + 全部 token 吊销", async () => {
-            const pr = createPasswordReset({ db });
-
-            expect(db._count("authToken")).toBe(2);
-
-            await pr.changePassword(USER_ID, OLD_PASSWORD, NEW_PASSWORD);
-
-            // 密码已更新
-            const account = db._records("account")[0];
-            expect(await verifyPassword(account.password as string, NEW_PASSWORD)).toBe(true);
-            expect(await verifyPassword(account.password as string, OLD_PASSWORD)).toBe(false);
-
-            // 全部 token 已吊销
-            expect(db._count("authToken")).toBe(0);
-        });
-
-        it("旧密码错误 → 抛 InvalidPasswordError 且不修改", async () => {
-            const pr = createPasswordReset({ db });
-
-            await expect(
-                pr.changePassword(USER_ID, "wrong-password", NEW_PASSWORD)
-            ).rejects.toThrow(InvalidPasswordError);
-
-            // 密码未变
-            const account = db._records("account")[0];
-            expect(await verifyPassword(account.password as string, OLD_PASSWORD)).toBe(true);
-
-            // token 未被吊销
-            expect(db._count("authToken")).toBe(2);
-        });
-
-        it("用户未设置密码 → 抛 InvalidPasswordError", async () => {
-            const pr = createPasswordReset({ db });
-
-            // 删除 credential account
-            db._records("account").length = 0;
-
-            await expect(
-                pr.changePassword(USER_ID, OLD_PASSWORD, NEW_PASSWORD)
-            ).rejects.toThrow(InvalidPasswordError);
-        });
-
-        it("抛出的错误为 InvalidPasswordError 实例", async () => {
-            const pr = createPasswordReset({ db });
-
-            try {
-                await pr.changePassword(USER_ID, "wrong", NEW_PASSWORD);
-                throw new Error("should have thrown");
-            } catch (err) {
-                expect(err).toBeInstanceOf(InvalidPasswordError);
-                expect((err as Error).name).toBe("InvalidPasswordError");
-            }
         });
     });
 });

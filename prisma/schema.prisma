@@ -18,23 +18,9 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  authTokens     AuthToken[]
   accounts      Account[]
   businessAccount BusinessAccount?
   socialAccounts SocialAccount[]
-}
-
-model AuthToken {
-  id         String   @id @default(cuid())
-  tokenHash  String   @unique
-  userId     String
-  metadata   Json     @default("{}")
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId])
 }
 
 model Account {
