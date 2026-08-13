@@ -20,6 +20,7 @@ import { hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
 import { publishAuditEvent } from "./core/audit";
 import { createChannelVerification, registerVerificationSender, registerVerificationVerifier } from "./core/verification-channel";
 import type { VerificationSender, VerificationVerifier } from "./core/verification-channel";
+import { createDbFacade, type DbFacade } from "./models";
 import {
   phoneToSyntheticEmail,
   generateRandomPassword,
@@ -493,7 +494,6 @@ export class OmniAuth {
         email: "",
         emailVerified: false,
         image: null,
-        role: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -505,7 +505,6 @@ export class OmniAuth {
       email: (record.email as string) ?? "",
       emailVerified: (record.emailVerified as boolean) ?? false,
       image: (record.image as string) ?? null,
-      role: (record.role as string) ?? null,
       createdAt: record.createdAt as Date,
       updatedAt: record.updatedAt as Date,
     };
@@ -737,27 +736,13 @@ export class OmniAuth {
   // 数据库直通（增删改查）
   // ----------------------------------------------------------
 
-  /** 暴露底层 DatabaseAdapter 的 CRUD 能力，无需额外安装数据库依赖 */
-  get db() {
-    const adapter = this.config.database;
-    return {
-      findOne: (params: Parameters<DatabaseAdapter["findOne"]>[0]) =>
-        adapter.findOne(params),
-      findMany: (params: Parameters<DatabaseAdapter["findMany"]>[0]) =>
-        adapter.findMany(params),
-      create: (params: Parameters<DatabaseAdapter["create"]>[0]) =>
-        adapter.create(params),
-      updateOne: (params: Parameters<DatabaseAdapter["updateOne"]>[0]) =>
-        adapter.updateOne(params),
-      updateMany: (params: Parameters<DatabaseAdapter["updateMany"]>[0]) =>
-        adapter.updateMany(params),
-      deleteOne: (params: Parameters<DatabaseAdapter["deleteOne"]>[0]) =>
-        adapter.deleteOne(params),
-      deleteMany: (params: Parameters<DatabaseAdapter["deleteMany"]>[0]) =>
-        adapter.deleteMany(params),
-      count: (params: Parameters<DatabaseAdapter["count"]>[0]) =>
-        adapter.count(params),
-    };
+  /**
+   * 数据库直通门面：
+   * - 类型化表视图（推荐）：db.user.* / db.account.* / db.socialAccount.* / db.businessAccount.*
+   * - 泛型方法（已弃用）：db.findOne({ model, ... }) 等
+   */
+  get db(): DbFacade {
+    return createDbFacade(this.config.database);
   }
 
   // ----------------------------------------------------------

@@ -1,3 +1,8 @@
+// ============================================================
+// omni-auth 生成 + app 自定义
+// 由 scripts/merge-prisma-schema.mjs 生成，勿手动修改本文件
+// ============================================================
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,49 +12,62 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============ 认证表 ============
+// ============================================================
+// omni-auth 认证表（来自 packages/omni-auth/src/schema.ts）
+// ============================================================
 
 model User {
-  id            String    @id @default(cuid())
-  name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  accounts      Account[]
   businessAccount BusinessAccount?
-  socialAccounts SocialAccount[]
+  id String @id @default(cuid())
+  name String
+  email String @unique
+  emailVerified Boolean @default(false)
+  image String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  account Account[]
+  socialAccount SocialAccount[]
 }
 
 model Account {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
   accountId String
   providerId String
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accessToken  String?
+  userId String
+  accessToken String?
   refreshToken String?
-  idToken      String?
+  idToken String?
   accessTokenExpiresAt DateTime?
   refreshTokenExpiresAt DateTime?
-  scope        String?
-  password     String?
+  scope String?
+  password String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Verification {
-  id        String   @id @default(cuid())
-  identifier String
-  value     String
-  expiresAt DateTime
+model SocialAccount {
+  id String @id @default(cuid())
+  userId String
+  provider String
+  providerOpenid String
+  accessToken String?
+  refreshToken String?
+  tokenExpiresAt DateTime?
+  profileData Json @default("{}")
+  valid Int @default(0)
+  allowPasswordUpdate Int @default(0)
+  allowVerification Int @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerOpenid])
 }
 
-// ============ 业务表 ============
+
+// ============================================================
+// app 自定义表
+// ============================================================
 
 model BusinessAccount {
   id          String   @id @default(cuid())
@@ -59,25 +77,4 @@ model BusinessAccount {
   status      String   @default("active")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-}
-
-// ============ 社交账户表 ============
-
-model SocialAccount {
-  id                  String   @id @default(cuid())
-  userId              String
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider            String
-  providerOpenid      String
-  accessToken         String?
-  refreshToken        String?
-  tokenExpiresAt      DateTime?
-  profileData         Json     @default("{}")
-  valid               Int      @default(0)
-  allowPasswordUpdate Int      @default(0)
-  allowVerification   Int      @default(0)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@unique([provider, providerOpenid])
 }

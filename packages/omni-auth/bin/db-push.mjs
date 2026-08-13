@@ -7,10 +7,11 @@
 //   DATABASE_URL=postgres://... npx omni-auth db:push
 //
 // 行为：
-//   - 读取 DATABASE_URL 环境变量
-//   - 连接 PostgreSQL
+//   - 从 schema.ts（单一事实源）读取表定义
+//   - 运行时生成 DDL 并执行
 //   - 创建所有标准表（幂等：IF NOT EXISTS）
 //   - 添加缺失的列（幂等：ADD COLUMN IF NOT EXISTS）
+//   - 修正旧版遗留的全小写列名（RENAME）
 //
 // 不执行：
 //   - 不删除表或列（安全策略）
@@ -19,76 +20,8 @@
 // ============================================================
 
 import { Pool } from "pg";
-
-// ============================================================
-// Schema Definition（与 prisma schema / schema.declarative.json 保持一致）
-// ============================================================
-
-const TABLES = [
-  {
-    name: "user",
-    columns: [
-      { name: "id", type: "TEXT NOT NULL", pk: true },
-      { name: "name", type: "TEXT NOT NULL" },
-      { name: "email", type: "TEXT NOT NULL UNIQUE" },
-      { name: "emailVerified", type: "BOOLEAN NOT NULL DEFAULT FALSE" },
-      { name: "image", type: "TEXT" },
-      { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-      { name: "updatedAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-    ],
-  },
-  {
-    name: "account",
-    columns: [
-      { name: "id", type: "TEXT NOT NULL", pk: true },
-      { name: "accountId", type: "TEXT NOT NULL" },
-      { name: "providerId", type: "TEXT NOT NULL" },
-      { name: "userId", type: "TEXT NOT NULL" },
-      { name: "accessToken", type: "TEXT" },
-      { name: "refreshToken", type: "TEXT" },
-      { name: "idToken", type: "TEXT" },
-      { name: "accessTokenExpiresAt", type: "TIMESTAMPTZ" },
-      { name: "refreshTokenExpiresAt", type: "TIMESTAMPTZ" },
-      { name: "scope", type: "TEXT" },
-      { name: "password", type: "TEXT" },
-      { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-      { name: "updatedAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-    ],
-  },
-  {
-    name: "businessAccount",
-    columns: [
-      { name: "id", type: "TEXT NOT NULL", pk: true },
-      { name: "authUserId", type: "TEXT NOT NULL UNIQUE" },
-      { name: "displayName", type: "TEXT NOT NULL" },
-      { name: "status", type: "TEXT NOT NULL DEFAULT 'active'" },
-      { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-      { name: "updatedAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-    ],
-  },
-  {
-    name: "socialAccount",
-    columns: [
-      { name: "id", type: "TEXT NOT NULL", pk: true },
-      { name: "userId", type: "TEXT NOT NULL" },
-      { name: "provider", type: "TEXT NOT NULL" },
-      { name: "providerOpenid", type: "TEXT NOT NULL" },
-      { name: "accessToken", type: "TEXT" },
-      { name: "refreshToken", type: "TEXT" },
-      { name: "tokenExpiresAt", type: "TIMESTAMPTZ" },
-      { name: "profileData", type: "JSONB NOT NULL DEFAULT '{}'" },
-      { name: "valid", type: "INTEGER NOT NULL DEFAULT 0" },
-      { name: "allowPasswordUpdate", type: "INTEGER NOT NULL DEFAULT 0" },
-      { name: "allowVerification", type: "INTEGER NOT NULL DEFAULT 0" },
-      { name: "createdAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-      { name: "updatedAt", type: "TIMESTAMPTZ NOT NULL DEFAULT NOW()" },
-    ],
-  },
-];
-
-const UNIQUE_CONSTRAINTS = [
-  { table: "socialAccount", columns: ["provider", "providerOpenid"] },
-];
+import { schema } from "../dist/schema.js";
+import { generateDDL } from "../dist/codegen-ddl.js";
 
 // ============================================================
 // Main
@@ -102,7 +35,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("🔧 omni-auth db:push v1.0.0");
+  console.log("🔧 omni-auth db:push v2.0.0");
   console.log(`   连接: ${databaseUrl.replace(/\/\/.*@/, "//***@")}`);
   console.log("");
 
@@ -116,40 +49,39 @@ async function main() {
     await pool.query("SELECT 1");
     console.log("✅ 数据库连接成功");
 
-    // 2. 为每张表执行 CREATE TABLE IF NOT EXISTS
-    for (const table of TABLES) {
-      const colDefs = table.columns.map((col) => {
-        let def = `"${col.name}" ${col.type}`;
-        if (col.pk) def += " PRIMARY KEY";
-        return def;
-      }).join(",\n    ");
+    // 2. 生成 DDL 并执行（CREATE TABLE IF NOT EXISTS + INDEX）
+    const ddl = generateDDL(schema);
+    const statements = ddl.split(";").filter((s) => s.trim());
 
-      const sql = `CREATE TABLE IF NOT EXISTS "${table.name}" (\n    ${colDefs}\n  )`;
-      await pool.query(sql);
-      console.log(`✅ 表 "${table.name}" 已就绪`);
+    for (const stmt of statements) {
+      await pool.query(stmt);
+    }
 
-      // 3. 为表添加缺失的列（幂等）；旧版建表（未加引号）产生的全小写列名自动修正
+    console.log(`✅ 已执行 ${statements.length} 条 DDL 语句`);
+
+    // 3. 逐表检查并添加缺失的列（幂等）
+    for (const table of Object.values(schema)) {
       const { rows: existingCols } = await pool.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
         [table.name]
       );
       const existingNames = new Set(existingCols.map((c) => c.column_name));
 
-      for (const col of table.columns) {
-        if (existingNames.has(col.name)) continue;
+      for (const [colName, col] of Object.entries(table.columns)) {
+        if (existingNames.has(colName)) continue;
 
         // 旧版 schema 同步（列名未加引号）会把驼峰列折叠为全小写，
         // 导致读取字段失败（providerid ≠ providerId）。
         // 检测到小写变体时重命名列以保真大小写（RENAME 不丢数据）。
-        const lowerVariant = col.name.toLowerCase();
+        const lowerVariant = colName.toLowerCase();
         if (existingNames.has(lowerVariant)) {
           try {
             await pool.query(
-              `ALTER TABLE "${table.name}" RENAME COLUMN "${lowerVariant}" TO "${col.name}"`
+              `ALTER TABLE "${table.name}" RENAME COLUMN "${lowerVariant}" TO "${colName}"`
             );
-            console.log(`   ↳ 修正列名大小写 "${table.name}"."${lowerVariant}" → "${col.name}"`);
+            console.log(`   ↳ 修正列名大小写 "${table.name}"."${lowerVariant}" → "${colName}"`);
             existingNames.delete(lowerVariant);
-            existingNames.add(col.name);
+            existingNames.add(colName);
             continue;
           } catch (err) {
             console.warn(
@@ -159,40 +91,74 @@ async function main() {
           }
         }
 
+        // 真正缺失 → ADD COLUMN
+        const typeSQL = columnTypeToSQL(col._def.type);
+        const parts = [typeSQL];
+        if (col._def.required) parts.push("NOT NULL");
+        if (col._def.default !== undefined) {
+          parts.push(`DEFAULT ${defaultValueToSQL(col._def.default)}`);
+        }
+
         try {
           await pool.query(
-            `ALTER TABLE "${table.name}" ADD COLUMN "${col.name}" ${col.type}`
+            `ALTER TABLE "${table.name}" ADD COLUMN "${colName}" ${parts.join(" ")}`
           );
-          console.log(`   ↳ 新增列 "${table.name}"."${col.name}"`);
+          console.log(`   ↳ 新增列 "${table.name}"."${colName}"`);
         } catch (err) {
-          console.warn(`   ⚠️ 添加列 "${table.name}"."${col.name}" 失败: ${err instanceof Error ? err.message : String(err)}`);
+          console.warn(
+            `   ⚠️ 添加列 "${table.name}"."${colName}" 失败: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
-      }
-    }
-
-    // 4. 创建唯一约束
-    for (const uc of UNIQUE_CONSTRAINTS) {
-      const colList = uc.columns.map((c) => `"${c}"`).join(", ");
-      const constraintName = `${uc.table}_${uc.columns.join("_")}_key`;
-      try {
-        await pool.query(
-          `ALTER TABLE "${uc.table}" ADD CONSTRAINT "${constraintName}" UNIQUE (${colList})`
-        );
-        console.log(`✅ 唯一约束 "${uc.table}".(${uc.columns.join(", ")}) 已创建`);
-      } catch {
-        // 约束已存在，忽略
       }
     }
 
     console.log("");
     console.log("🎉 数据库 Schema 同步完成！");
-
   } catch (err) {
     console.error("❌ 同步失败:", err instanceof Error ? err.message : String(err));
     process.exit(1);
   } finally {
     await pool.end();
   }
+}
+
+// ============================================================
+// 辅助函数（与 codegen-ddl.ts 一致）
+// ============================================================
+
+function columnTypeToSQL(type) {
+  switch (type) {
+    case "text":
+      return "TEXT";
+    case "boolean":
+      return "BOOLEAN";
+    case "integer":
+      return "INTEGER";
+    case "jsonb":
+      return "JSONB";
+    case "timestamptz":
+      return "TIMESTAMPTZ";
+    case "timestamp":
+      return "TIMESTAMP";
+    default:
+      return type.toUpperCase();
+  }
+}
+
+function defaultValueToSQL(value) {
+  if (value === null) return "NULL";
+  if (typeof value === "string") {
+    if (value === "NOW()" || value === "CURRENT_TIMESTAMP") {
+      return value;
+    }
+    return `'${value.replace(/'/g, "''")}'`;
+  }
+  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "object") {
+    return `'${JSON.stringify(value)}'::jsonb`;
+  }
+  return String(value);
 }
 
 main();

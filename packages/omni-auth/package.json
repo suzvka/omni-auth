@@ -1,6 +1,6 @@
 {
   "name": "omni-auth",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "OmniAuth — omnichannel authentication SDK with first-class Next.js integration",
   "author": "Omni Auth Contributors",
   "license": "MIT",
@@ -42,6 +42,21 @@
       "types": "./dist/nextjs/index.d.ts",
       "import": "./dist/nextjs/index.js",
       "require": "./dist/nextjs/index.cjs"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "require": "./dist/schema.cjs"
+    },
+    "./codegen-ddl": {
+      "types": "./dist/codegen-ddl.d.ts",
+      "import": "./dist/codegen-ddl.js",
+      "require": "./dist/codegen-ddl.cjs"
+    },
+    "./codegen-prisma": {
+      "types": "./dist/codegen-prisma.d.ts",
+      "import": "./dist/codegen-prisma.js",
+      "require": "./dist/codegen-prisma.cjs"
     }
   },
   "files": [
@@ -49,7 +64,8 @@
     "bin"
   ],
   "bin": {
-    "omni-auth": "bin/db-push.mjs"
+    "omni-auth": "bin/db-push.mjs",
+    "omni-auth-codegen": "bin/codegen.mjs"
   },
   "scripts": {
     "build": "tsup",
@@ -57,27 +73,25 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "codegen": "node bin/codegen.mjs"
   },
   "peerDependencies": {
     "next": ">=16"
   },
   "peerDependenciesMeta": {
-    "pg": {
-      "optional": true
-    },
     "next": {
       "optional": true
     }
   },
   "dependencies": {
     "@better-auth/core": "~1.6.26",
-    "@better-auth/utils": "~0.4.2"
+    "@better-auth/utils": "~0.4.2",
+    "pg": "^8"
   },
   "devDependencies": {
     "@types/pg": "^8",
     "next": "16.2.6",
-    "pg": "^8",
     "tsup": "^8",
     "typescript": "^5",
     "vitest": "^4.1.7"

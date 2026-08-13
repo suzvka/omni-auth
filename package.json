@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "build:packages": "pnpm --filter omni-auth build",
-    "publish:packages": "pnpm --filter omni-auth publish --access public"
+    "publish:packages": "pnpm --filter omni-auth publish --access public",
+    "update:prisma": "node scripts/merge-prisma-schema.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6",

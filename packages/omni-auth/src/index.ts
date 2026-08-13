@@ -31,6 +31,47 @@ export type { DatabaseAdapter, WhereCondition, WhereOperator, SearchCondition, O
 export type { RequestContext } from "./adapters/request";
 export { createRequestContext } from "./adapters/request";
 
+// 类型化数据访问（typed 门面）
+export type {
+  UserRow,
+  AccountRow,
+  SocialAccountRow,
+  ModelMap,
+  ModelName,
+  ModelWhere,
+  ModelView,
+  DbFacade,
+} from "./models";
+
+// Schema DSL（单一事实源：表结构定义）
+export {
+  table,
+  text,
+  boolean,
+  integer,
+  jsonb,
+  timestamptz,
+  timestamp,
+  defineSchema,
+  ColumnBuilder,
+} from "./schema-builder";
+export type {
+  ColumnType,
+  ColumnDef,
+  TableDef,
+  TableOptions,
+  Schema,
+  InferSelect,
+  InferInsert,
+} from "./schema-builder";
+
+// Schema 定义（认证三表 + 派生类型）
+export { schema, user, account, socialAccount } from "./schema";
+
+// Codegen（DDL + Prisma schema 生成）
+export { generateDDL } from "./codegen-ddl";
+export { generatePrismaSchema } from "./codegen-prisma";
+
 // 内置适配器
 export { PgAdapter } from "./builtin/pg/adapter";
 export type { PgAdapterOptions, PgAdapterInstance } from "./builtin/pg/adapter";

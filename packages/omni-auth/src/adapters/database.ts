@@ -8,9 +8,9 @@
 /** 查询条件操作符 */
 export type WhereOperator = "eq" | "neq" | "in" | "lt" | "gt" | "lte" | "gte";
 
-/** 单条查询条件 */
-export interface WhereCondition {
-  field: string;
+/** 单条查询条件（field 可限定为具体表的列名） */
+export interface WhereCondition<Field extends string = string> {
+  field: Field;
   value: unknown;
   operator?: WhereOperator;
 }
