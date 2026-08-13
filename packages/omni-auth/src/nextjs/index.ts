@@ -96,8 +96,7 @@ interface OAuthResult { token: string | null; userId: string; isNewUser: boolean
 /**
  * 创建带有 AuthToken cookie 的 OAuth 回调响应。
  *
- * M2 后 token 引擎直接生成 AuthToken（SHA-256 哈希存储），
- * 不再需要 HMAC 签名。直接将原始 token 设置到 omni-auth.token cookie。
+ * token 明文仅通过 omni-auth.token cookie 返回（数据库只存哈希）。
  * auth 参数保留以维持 API 兼容性。
  */
 export function oauthCookieResponse(
@@ -199,7 +198,7 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
   let database: DatabaseAdapter;
 
   if (isDeclarativeDbConfig(config.database)) {
-    // v0.6.0 声明式配置：内置 pg 驱动
+    // 声明式配置：内置 pg 驱动
     console.log("[omni-auth] 使用内置 PgAdapter（声明式配置）");
     database = PgAdapter(config.database);
   } else {

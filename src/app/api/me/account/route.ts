@@ -1,5 +1,5 @@
 // DELETE /api/me/account
-// 注销当前用户账号（需要密码验证），成功后清除 session cookie
+// 注销当前用户账号（需要密码验证），成功后清除 token cookie
 
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
@@ -12,7 +12,7 @@ export async function DELETE(request: Request) {
   try {
     const ctx = nextjsRequestContext(await headers());
 
-    // CSRF 同源校验（D13）
+    // CSRF 同源校验
     if (!checkSameOrigin(ctx)) {
       return NextResponse.json({ error: CROSS_ORIGIN_ERROR }, { status: 403 });
     }

@@ -1,10 +1,9 @@
 // ============================================================
 // OAuth 回调抽象
 //
-// M3 阶段：扩展 OAuthProviderConfig 以支持 @better-auth/core/oauth2
-// 的 state/PKCE 流程。标准 OAuth2 provider 实现 getOAuthConfig +
-// getUserInfo 后由 handler 调用 validateAuthorizationCode；非标准
-// provider（如微信）继续使用 exchangeCode 兼容路径。
+// 标准 OAuth2 provider 实现 getOAuthConfig + getUserInfo，由 handler
+// 经 @better-auth/core/oauth2 完成 state/PKCE 与 code 交换；非标准
+// provider（如微信）使用 buildAuthorizationUrl + exchangeCode 兼容路径。
 // ============================================================
 
 import type { OAuth2Tokens } from "@better-auth/core/oauth2";
@@ -53,12 +52,13 @@ export interface OAuthProviderConfig {
     }): string;
 
     /**
-     * 用 OAuth code 换取 access_token + openid + 用户信息。
+     * 用 OAuth code 换取 access_token + openid + 用户信息（可选）。
      *
-     * 兼容模式：不支持 getOAuthConfig/getUserInfo 的 provider 使用此方法。
+     * 兼容模式：不支持 getOAuthConfig/getUserInfo 的 provider 实现此方法，
+     * 标准 OAuth2 provider 无需实现。
      * codeVerifier 用于 PKCE（如 provider 支持）。
      */
-    exchangeCode(code: string, redirectUri: string, codeVerifier?: string): Promise<{
+    exchangeCode?(code: string, redirectUri: string, codeVerifier?: string): Promise<{
         openid: string;
         accessToken: string;
         refreshToken?: string;
@@ -70,7 +70,7 @@ export interface OAuthProviderConfig {
 }
 
 export interface OAuthCallbackResult {
-    /** AuthToken 明文（用于设置 cookie，M3 起替代旧 session token） */
+    /** AuthToken 明文（用于设置 cookie；数据库仅存哈希） */
     token: string;
     /** 用户的 authUserId */
     userId: string;

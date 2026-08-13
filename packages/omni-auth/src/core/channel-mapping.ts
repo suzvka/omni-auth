@@ -1,7 +1,7 @@
 // ============================================================
 // 合成邮箱映射工具
 //
-// Better Auth 以 email 为核心凭证，非邮箱渠道用户通过合成邮箱
+// user 表以 email 为唯一锚点，非邮箱渠道用户通过合成邮箱
 // 接入。合成邮箱格式:
 //   手机:  phone+{phone}@{domain}
 //   OAuth: {provider}_{openid前12位}@oauth.usercenter
@@ -42,7 +42,7 @@ export function syntheticEmailToPhone(email: string): string {
 // 密码工具
 // ----------------------------------------------------------
 
-/** 为手机号/OAuth 用户生成随机密码（Better Auth email/password 模式下必须提供密码） */
+/** 为手机号/OAuth 用户生成随机密码（password 凭证模式要求密码字段非空） */
 export function generateRandomPassword(): string {
   return randomBytes(32).toString("hex");
 }

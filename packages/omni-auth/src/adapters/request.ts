@@ -12,7 +12,7 @@ export interface RequestContext {
   /** 读取 Cookie 值 */
   getCookie(name: string): string | null;
 
-  /** 返回原始 headers 对象（用于传递给 Better Auth） */
+  /** 返回原始 headers 对象 */
   asHeaders(): Record<string, string>;
 }
 

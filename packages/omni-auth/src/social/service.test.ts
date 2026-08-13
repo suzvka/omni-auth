@@ -56,6 +56,15 @@ function createInMemoryDb(): DatabaseAdapter {
       return sliced;
     },
 
+    async count({ model, where }) {
+      const table = ensureModel(model);
+      let n = 0;
+      for (const [, record] of table) {
+        if (!where || where.every((w) => record[w.field] === w.value)) n++;
+      }
+      return n;
+    },
+
     async updateOne({ model, where, update }) {
       const table = ensureModel(model);
       for (const [, record] of table) {

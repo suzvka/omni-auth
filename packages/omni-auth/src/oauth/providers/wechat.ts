@@ -9,8 +9,8 @@
 //
 // 文档：https://developers.weixin.qq.com/doc/oplatform/Website_App/WeChat_Login/Wechat_Login.html
 //
-// M3: 微信使用非标准 OAuth2（appid 而非 client_id、GET 而非 POST），
-// 因此走 exchangeCode 兼容路径 + buildAuthorizationUrl 自定义授权 URL。
+// 微信使用非标准 OAuth2（appid 而非 client_id、GET 而非 POST），
+// 因此走 buildAuthorizationUrl + exchangeCode 兼容路径。
 // 微信不支持 PKCE，codeVerifier 参数接受但忽略。
 // ============================================================
 

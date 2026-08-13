@@ -32,6 +32,8 @@ export interface PgAdapterOptions {
 export interface PgAdapterInstance extends DatabaseAdapter {
   /** 内部持有的 pg Pool 引用 */
   _pool: Pool;
+  /** 初始化连接池（预热） */
+  init(): Promise<void>;
   /** 关闭连接池 */
   disconnect(): Promise<void>;
 }

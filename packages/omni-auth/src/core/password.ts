@@ -3,7 +3,7 @@
 //
 // requestReset = requestCode（发到绑定渠道）
 // reset = exchangeCode + hashPassword + 更新密码 + 吊销全部 token
-// changePassword = verifyPassword（直接校验，不再假登录）+ hashPassword + 更新 + 吊销全部 token
+// changePassword = verifyPassword 校验旧密码 + hashPassword + 更新 + 吊销全部 token
 // ============================================================
 
 import { hashPassword, verifyPassword } from "@better-auth/utils/password";
@@ -15,7 +15,7 @@ import { InvalidPasswordError } from "../errors";
 // ---- 依赖 ----
 
 export interface PasswordResetDeps {
-    /** 数据库适配器（替代旧 BetterAuthInstance） */
+    /** 数据库适配器（必填） */
     db: DatabaseAdapter;
     /** 验证码过期时间（预留，默认由 requestCode 决定 5 分钟） */
     expiresIn?: number;
@@ -119,7 +119,7 @@ export function createPasswordReset(deps: PasswordResetDeps) {
                 },
             });
 
-            // 5. 吊销全部 token（D3：重置密码后所有登录失效）
+            // 5. 吊销全部 token（重置密码后所有登录失效）
             await revokeAllTokens(db, userId);
 
             return userId;
@@ -171,7 +171,7 @@ export function createPasswordReset(deps: PasswordResetDeps) {
                 },
             });
 
-            // 4. 吊销全部 token（D3：修改密码后所有登录失效）
+            // 4. 吊销全部 token（修改密码后所有登录失效）
             await revokeAllTokens(db, userId);
         },
     };

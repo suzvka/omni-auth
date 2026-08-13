@@ -180,7 +180,7 @@ function createTestAuth(
 // 测试
 // ----------------------------------------------------------
 
-describe("OmniAuth token 引擎（M2 Phase 2）", () => {
+describe("OmniAuth token 引擎", () => {
     it("signUp 创建 user + account + AuthToken", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
@@ -255,7 +255,7 @@ describe("OmniAuth token 引擎（M2 Phase 2）", () => {
         expect(signInResult.userId).toBe(signUpResult.userId);
         expect(signInResult.user.email).toBe("bob@test.local");
 
-        // 单 token per user（D10）：upsert 覆盖旧 token，authToken 表仍只有 1 条
+        // 单 token per user：upsert 覆盖旧 token，authToken 表仍只有 1 条
         const tokens = memDb.dump("authToken");
         expect(tokens.length).toBe(1);
     });
@@ -359,7 +359,7 @@ describe("OmniAuth token 引擎（M2 Phase 2）", () => {
         });
 
         // signOut 前 token 有效
-        const validated1 = await validateToken(memDb, token);
+        const validated1 = await validateToken(memDb, token!);
         expect(validated1?.userId).toBe(userId);
 
         // signOut
@@ -369,7 +369,7 @@ describe("OmniAuth token 引擎（M2 Phase 2）", () => {
         await auth.signOut(ctx);
 
         // signOut 后 token 已失效
-        const validated2 = await validateToken(memDb, token);
+        const validated2 = await validateToken(memDb, token!);
         expect(validated2).toBeNull();
     });
 
@@ -399,7 +399,7 @@ describe("OmniAuth token 引擎（M2 Phase 2）", () => {
         expect(count).toBe(1);
 
         // token 已失效
-        const validated = await validateToken(memDb, token);
+        const validated = await validateToken(memDb, token!);
         expect(validated).toBeNull();
     });
 
@@ -417,11 +417,11 @@ describe("OmniAuth token 引擎（M2 Phase 2）", () => {
             authorization: `Bearer ${token}`,
         });
 
-        const ok = await auth.revokeToken(ctx, token);
+        const ok = await auth.revokeToken(ctx, token!);
         expect(ok).toBe(true);
 
         // token 已失效
-        const validated = await validateToken(memDb, token);
+        const validated = await validateToken(memDb, token!);
         expect(validated).toBeNull();
     });
 

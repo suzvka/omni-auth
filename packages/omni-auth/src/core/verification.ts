@@ -34,8 +34,7 @@ const IDENTIFIER_PREFIX = "verify-email:";
 /**
  * 创建邮箱验证模块。
  *
- * 不再依赖 Better Auth 内置 API，直接操作 Verification 表完成
- * token 生成、存储、校验、清理的完整生命周期。
+ * 直接操作 Verification 表完成 token 生成、存储、校验、清理的完整生命周期。
  */
 export function createEmailVerification(deps: EmailVerificationDeps) {
     const { db, email, baseUrl } = deps;

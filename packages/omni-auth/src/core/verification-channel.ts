@@ -1,7 +1,7 @@
 // ============================================================
 // 渠道验证码原语 — requestCode / exchangeCode
 //
-// 统一原语：注册/登录/重置密码/邮箱验证全部复用。
+// 密码重置等场景复用本原语；邮箱验证为独立实现（core/verification.ts）。
 // identifier 命名空间：channel:{provider}:{providerOpenid}
 // 验证码生成使用 crypto.randomInt（密码学安全）。
 // exchangeCode 一次性消费（成功即删除）。
@@ -25,7 +25,7 @@ export interface VerificationSender {
     send(channel: SocialAccountRef, code: string): Promise<void>;
 }
 
-/** 验证码存储记录（复用 Better Auth verification 表结构） */
+/** 验证码存储记录（复用 Verification 表结构） */
 interface VerificationRecord {
     id: string;
     identifier: string;

@@ -86,13 +86,9 @@ function generatePlaceholderEmail(provider: string, openid: string): string {
 /**
  * OAuth 回调处理器工厂。
  *
- * M3 变更：
- * - 移除 auth (BetterAuthInstance) 依赖，自行实现注册
- * - 新增 expiresIn 控制 AuthToken 过期
- * - 新增 initiateOAuth 用于发起 state/PKCE 授权流
- * - 使用 @better-auth/core/oauth2 的 createAuthorizationURL / validateAuthorizationCode
- * - 使用 createAuthToken 替代 db.create({ model: "session" })
- * - 使用 publishAuditEvent 发布 oauthLogin 审计事件
+ * 自行创建 user / account / businessAccount 记录（不依赖第三方 auth 内核）；
+ * 通过 @better-auth/core/oauth2 完成授权 URL 生成与 code 交换（含 state/PKCE）；
+ * 登录成功后创建 AuthToken 并发布 oauthLogin 审计事件。
  */
 export function createOAuthHandler(deps: {
     db: DatabaseAdapter;
@@ -210,6 +206,11 @@ export function createOAuthHandler(deps: {
             };
         } else {
             // 兼容模式: 使用 provider 的 exchangeCode（传入 codeVerifier 供 PKCE）
+            if (!config.exchangeCode) {
+                throw new Error(
+                    `Provider "${provider}" 未实现 exchangeCode，无法换取 token`,
+                );
+            }
             exchanged = await config.exchangeCode(code, redirectUri, codeVerifier);
         }
 
@@ -260,7 +261,7 @@ export function createOAuthHandler(deps: {
         const password = generateRandomPassword();
         const passwordHash = await hashPassword(password);
 
-        // 自行创建 user 记录（不再依赖 auth.api.signUpEmail）
+        // 创建 user 记录
         const userId = randomUUID();
         await db.create({
             model: "user",

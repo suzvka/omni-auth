@@ -27,8 +27,8 @@ export type RoleResolver = {
   /**
    * 查询用户拥有的所有角色。
    *
-   * @param authUserId  Better Auth 用户 ID
-   * @param db          SDK 注入的数据库操作接口（v0.6.0 新增，可选以保持向后兼容）
+   * @param authUserId  认证用户 ID
+   * @param db          SDK 注入的数据库操作接口（可选，保持向后兼容）
    */
   getRolesForUser(authUserId: string, db?: DBApi): Promise<string[]>;
 };

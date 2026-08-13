@@ -2,9 +2,9 @@
 // App 端 SDK 初始化
 //
 // createQuickAuth 一站式初始化认证 SDK：
-// - 声明式 database 配置（v0.6.0，内置 pg 驱动，零 Prisma 依赖）
-// - 自动注册 BusinessAccount 的 AccountResolver
-// - BusinessAccount 创建已在 SDK signUp 方法中内联（无需 hooks）
+// - 声明式 database 配置（SDK 内置 pg 驱动，零 ORM 依赖）
+// - 通过 accountResolver 解析 BusinessAccount 业务账户
+// - BusinessAccount 由 SDK signUp 内联创建
 // ============================================================
 
 import { createQuickAuth, createRouteHelpers } from "omni-auth/nextjs";
@@ -39,7 +39,7 @@ export const auth = createQuickAuth({
       };
     },
   },
-  // v0.6.0: roleResolver 接收 SDK 注入的 db，无需裸调 prisma
+  // roleResolver 接收 SDK 注入的 db，无需裸调 prisma
   roleResolver: {
     async getRolesForUser(authUserId: string, db?: DBApi): Promise<string[]> {
       if (!db) return [];

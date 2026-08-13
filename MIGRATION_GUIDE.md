@@ -348,7 +348,7 @@ v1.0 删除了 `createRouteHandlers` 与 `/api/auth/[...all]`，路由由使用�
 | `/api/auth/forget-password` | POST | `{ provider, providerOpenid }` | `{ success }` |
 | `/api/auth/reset-password` | POST | `{ provider, providerOpenid, code, newPassword }` | `{ success }` |
 | `/api/auth/social-signup` | POST | `{ email, password, name, social: {...} }` | `{ success, userId, isNewUser }` + cookie |
-| `/api/auth/social/callback/[provider]` | GET | query: `code`, `state` | 重定向/cookie |
+| `/api/auth/social/callback/[provider]` | POST | `{ code, redirectUri }` | `{ success, userId, isNewUser, channel }` + token cookie |
 | `/api/auth/social/list` | GET | — | 社交账户列表 |
 | `/api/auth/social/bind` | POST | `{ provider, providerOpenid, ... }` | `{ success, channel }` |
 | `/api/auth/social/unbind` | DELETE | `{ id }` | `{ success }` |
@@ -437,7 +437,7 @@ import { setAuditHandler } from "omni-auth";
 setAuditHandler((event) => { /* event: { action, userId?, metadata?, ... } */ });
 ```
 
-action 枚举：`signUp` / `signIn` / `oauthLogin` / `channelBind` / `channelUnbind` / `channelUpdate` / `changeName` / `changePassword` / `resetPasswordRequest` / `resetPasswordDone` / `deleteAccount` / `verificationSent` / `tokenRevoked` / `tokensRevokedAll`。
+action 枚举：`signUp` / `signIn` / `signInFailed` / `oauthLogin` / `channelBind` / `channelUnbind` / `channelUpdate` / `changeName` / `changePassword` / `resetPasswordRequest` / `resetPasswordDone` / `deleteAccount` / `verificationSent`。
 
 ### 9.3 定时清理（使用方自建）
 

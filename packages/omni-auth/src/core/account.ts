@@ -1,7 +1,7 @@
 // ============================================================
 // 账号管理 — 注销与资料更新
 //
-// deleteAccount: 直接 verifyPassword 校验密码（不再假登录）→ 删除用户
+// deleteAccount: 直接 verifyPassword 校验密码 → 删除用户
 // updateProfile: 接收 userId（由调用方从 requireContext 获取）
 // ============================================================
 
@@ -28,7 +28,6 @@ export interface UpdateProfileInput {
 /**
  * 创建账号管理模块。
  *
- * 不再依赖 Better Auth 的 getSession / signInEmail，
  * 直接操作数据库完成密码校验、用户删除、资料更新。
  */
 export function createAccountDeletion(deps: AccountDeletionDeps) {

@@ -2,8 +2,8 @@
 // AuthToken 凭证引擎 — token 生成、哈希存储、校验、吊销
 //
 // token = 32 字节随机值（base64url），数据库只存 SHA-256 哈希。
-// 单 token per user（D10）：登录时 upsert 覆盖旧 token。
-// 吊销 = 删除记录。固定过期，不自动续期（D11）。
+// 单 token per user：登录时 upsert 覆盖旧 token。
+// 吊销 = 删除记录。固定过期，不自动续期。
 // ============================================================
 
 import { randomBytes, createHash, randomUUID } from "crypto";
@@ -38,7 +38,7 @@ export function validateMetadataSize(metadata: unknown): void {
 // ---- 数据库操作 ----
 
 /**
- * 创建 AuthToken（DB 级原子 upsert，D10）。
+ * 创建 AuthToken（DB 级原子 upsert）。
  *
  * 单 token per user：登录时 upsert 覆盖旧 token。
  * 必须使用 DB 级 ON CONFLICT 原子操作，禁止读→删→写三步。

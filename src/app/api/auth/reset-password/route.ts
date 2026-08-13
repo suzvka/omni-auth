@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
     try {
-        // CSRF 同源校验（D13）
+        // CSRF 同源校验
         if (!(await checkSameOriginFromHeaders())) {
             return NextResponse.json({ error: CROSS_ORIGIN_ERROR }, { status: 403 });
         }

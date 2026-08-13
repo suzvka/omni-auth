@@ -81,7 +81,7 @@ export interface SignUpInput {
 export interface SignUpResult {
   userId: string;
   token: string | null;
-  /** 创建后的完整用户信息（v0.6.0 新增） */
+  /** 创建后的完整用户信息 */
   user: PublicUser;
 }
 
@@ -95,7 +95,7 @@ export interface SignInInput {
 export interface SignInResult {
   userId: string;
   token: string | null;
-  /** 登录后的完整用户信息（v0.6.0 新增） */
+  /** 登录后的完整用户信息 */
   user: PublicUser;
 }
 
@@ -139,7 +139,7 @@ export interface ChannelAuthResult {
   userId: string;
   token: string | null;
   isNewUser: boolean;
-  /** 登录/注册后的完整用户信息（v0.6.0 新增） */
+  /** 登录/注册后的完整用户信息 */
   user: PublicUser;
   channel: {
     id: string;
@@ -184,7 +184,7 @@ export class OmniAuth {
   private _signUpRateLimit = createMemoryRateLimiter();
   private _requestCodeRateLimit = createMemoryRateLimiter();
   private _passwordResetRateLimit = createMemoryRateLimiter();
-  /** user.create.after 钩子列表（供新 signUp 内联调用，不再依赖 better-auth 触发） */
+  /** user.create.after 钩子列表（signUp 内联触发） */
   private _afterUserCreateHooks: Array<(user: { id: string; email?: string; name?: string }) => Promise<void>> = [];
 
   constructor(config: OmniAuthConfig) {
@@ -234,8 +234,7 @@ export class OmniAuth {
     });
 
     // ----------------------------------------------------------
-    // 收集 user.create.after hooks（供新 signUp 内联调用）
-    // 新 signUp 不再经过 better-auth，需手动触发这些钩子。
+    // 收集 user.create.after hooks（signUp / OAuth 回调内联触发）
     // ----------------------------------------------------------
 
     // 1. SDK 级别 onUserCreated
@@ -303,7 +302,7 @@ export class OmniAuth {
       },
     });
 
-    // 5. 触发 user.create.after 钩子（内联原 databaseHooks，不再依赖 better-auth 触发）
+    // 5. 触发 user.create.after 钩子
     // ---- 在 BusinessAccount 创建之前触发，避免钩子重复创建导致 @@unique 约束冲突
     for (const hook of this._afterUserCreateHooks) {
       try {
@@ -313,7 +312,7 @@ export class OmniAuth {
       }
     }
 
-    // 4b. 创建 BusinessAccount（原 autoCreateHooks 逻辑内联，不再依赖 hooks）
+    // 4b. 创建 BusinessAccount
     // ---- 检查是否已存在（onUserCreated 钩子可能已创建）
     const existingBiz = await this.config.database.findOne({
       model: "businessAccount",
@@ -353,7 +352,7 @@ export class OmniAuth {
 
     publishAuditEvent({ action: "signUp", userId });
 
-    // 7. 创建 AuthToken（DB 级原子 upsert，D10）
+    // 7. 创建 AuthToken（DB 级原子 upsert）
     const expiresIn = this.config.token?.expiresIn ?? 60 * 60 * 24 * 7;
     const token = await createAuthToken(
       this.config.database,
@@ -482,7 +481,7 @@ export class OmniAuth {
       // 已有绑定 → 登录
       let result: SignInResult;
       if (input.credential.type === "password") {
-        // 通过合成邮箱找回 Better Auth 用户并登录
+        // 通过合成邮箱找回用户并登录
         const syntheticEmail = this._buildChannelEmail(input.provider, input.providerOpenid);
         result = await this.signIn({ email: syntheticEmail, password: input.credential.value });
       } else {
@@ -580,7 +579,7 @@ export class OmniAuth {
 
   /**
    * 为已登录用户绑定新渠道。
-   * 需要有效 session。
+   * 需要有效登录态（AuthToken）。
    */
   async bindChannel(
     ctx: RequestContext,
@@ -623,7 +622,7 @@ export class OmniAuth {
 
   /**
    * 为已登录用户解绑渠道。
-   * 需要有效 session。
+   * 需要有效登录态（AuthToken）。
    */
   async unbindChannel(ctx: RequestContext, channelId: string): Promise<void> {
     const authCtx = await this.getContext(ctx);
@@ -1174,8 +1173,8 @@ export class OmniAuth {
        * 更换渠道标识符（邮箱/手机号/微信openid 等平等处理）。
        *
        * 唯一性校验 → socialAccount.providerOpenid 更新。
-       * user.email 为 Better Auth 内部占位符，不做同步。
-       * 返回更新后的渠道信息及关联用户（v0.6.0）。
+       * user.email 为内部占位符，不做同步。
+       * 返回更新后的渠道信息及关联用户。
        */
       async channel(
         ctx: RequestContext,

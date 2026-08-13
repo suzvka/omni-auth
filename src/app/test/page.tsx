@@ -14,8 +14,8 @@ interface LogEntry {
 // ============ 主页面 ============
 
 export default function TestPage() {
-    const [session, setSession] = useState<Record<string, unknown> | null>(null);
-    const [sessionLoading, setSessionLoading] = useState(true);
+    const [authContext, setAuthContext] = useState<Record<string, unknown> | null>(null);
+    const [contextLoading, setContextLoading] = useState(true);
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [meResult, setMeResult] = useState<string>("");
     const [profileResult, setProfileResult] = useState<string>("");
@@ -36,28 +36,28 @@ export default function TestPage() {
         setLogs((prev: LogEntry[]) => [...prev.slice(-49), { time, type, message }]);
     }, []);
 
-    // ============ 获取 Session ============
+    // ============ 获取 AuthContext ============
 
-    const fetchSession = useCallback(async () => {
-        setSessionLoading(true);
+    const fetchAuthContext = useCallback(async () => {
+        setContextLoading(true);
         try {
             const res = await fetch("/api/me");
             if (res.ok) {
                 const json = await res.json();
-                setSession(json.authUserId ? json : null);
+                setAuthContext(json.authUserId ? json : null);
             } else {
-                setSession(null);
+                setAuthContext(null);
             }
         } catch {
-            setSession(null);
+            setAuthContext(null);
         } finally {
-            setSessionLoading(false);
+            setContextLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        fetchSession();
-    }, [fetchSession]);
+        fetchAuthContext();
+    }, [fetchAuthContext]);
 
     // ============ 注册 ============
 
@@ -82,7 +82,7 @@ export default function TestPage() {
             if (res.ok) {
                 addLog("success", `注册成功: ${email}`);
                 form.reset();
-                fetchSession();
+                fetchAuthContext();
             } else {
                 addLog("error", `注册失败: ${json.error || JSON.stringify(json)}`);
             }
@@ -115,7 +115,7 @@ export default function TestPage() {
             if (res.ok) {
                 addLog("success", `登录成功: ${email}`);
                 form.reset();
-                fetchSession();
+                fetchAuthContext();
             } else {
                 addLog("error", `登录失败: ${json.error || JSON.stringify(json)}`);
             }
@@ -136,7 +136,7 @@ export default function TestPage() {
             const res = await fetch("/api/auth/sign-out", { method: "POST" });
             if (res.ok) {
                 addLog("success", "登出成功");
-                fetchSession();
+                fetchAuthContext();
             } else {
                 const json = await res.json();
                 addLog("error", `登出失败: ${json.error || JSON.stringify(json)}`);
@@ -215,7 +215,7 @@ export default function TestPage() {
             setSocialSignupResult(JSON.stringify(json, null, 2));
             if (res.ok) {
                 addLog("success", `社交注册成功 (${socialProvider})`);
-                fetchSession();
+                fetchAuthContext();
             } else {
                 addLog("error", `失败: ${json.error || JSON.stringify(json)}`);
             }
@@ -227,11 +227,11 @@ export default function TestPage() {
         }
     }
 
-    // ============ 获取 Session (GET /api/me) ============
+    // ============ 获取 AuthContext (GET /api/me) ============
 
-    async function handleGetSession() {
-        setLoadingAction("session");
-        addLog("info", "GET /api/me (session)");
+    async function handleGetContext() {
+        setLoadingAction("context");
+        addLog("info", "GET /api/me (context)");
 
         try {
             const res = await fetch("/api/me");
@@ -253,11 +253,11 @@ export default function TestPage() {
                 <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
                     <div className="flex items-center gap-3">
                         <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">🧪 认证测试面板</h1>
-                        {sessionLoading ? (
-                            <span className="text-sm text-zinc-400">加载会话中...</span>
-                        ) : session ? (
+                        {contextLoading ? (
+                            <span className="text-sm text-zinc-400">加载上下文中...</span>
+                        ) : authContext ? (
                             <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-400">
-                                已登录: {String((session.account as Record<string, unknown> | undefined)?.displayName ?? session.authUserId)}
+                                已登录: {String((authContext.account as Record<string, unknown> | undefined)?.displayName ?? authContext.authUserId)}
                             </span>
                         ) : (
                             <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
@@ -315,7 +315,7 @@ export default function TestPage() {
                         <Card title="🚪 登出 (Sign Out)">
                             <button
                                 onClick={handleLogout}
-                                disabled={loadingAction === "logout" || !session}
+                                disabled={loadingAction === "logout" || !authContext}
                                 className="w-full rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
                             >
                                 {loadingAction === "logout" ? "登出中..." : "登出"}
@@ -403,9 +403,9 @@ export default function TestPage() {
                                     color="indigo"
                                 />
                                 <TestButton
-                                    label="GET /api/me (session)"
-                                    loading={loadingAction === "session"}
-                                    onClick={handleGetSession}
+                                    label="GET /api/me (AuthContext)"
+                                    loading={loadingAction === "context"}
+                                    onClick={handleGetContext}
                                     color="purple"
                                 />
                                 <TestButton
@@ -417,14 +417,14 @@ export default function TestPage() {
                             </div>
                         </Card>
 
-                        {/* 当前 Session */}
-                        <Card title="👤 当前 Session (GET /api/me)">
+                        {/* 当前 AuthContext */}
+                        <Card title="👤 当前 AuthContext (GET /api/me)">
                             <pre className="max-h-48 overflow-auto rounded bg-zinc-800 p-3 text-xs text-green-300">
-                                {sessionLoading
+                                {contextLoading
                                     ? "加载中..."
-                                    : session
-                                        ? JSON.stringify(session, null, 2)
-                                        : "无会话 (null)"}
+                                    : authContext
+                                        ? JSON.stringify(authContext, null, 2)
+                                        : "未登录 (null)"}
                             </pre>
                         </Card>
 

@@ -2,8 +2,8 @@
 // 进程级初始化（instrumentation）
 //
 // Next.js 服务器实例启动时调用一次 register()。
-// M2 阶段：定时清理过期 AuthToken + Verification 记录（每 6 小时）。
-// 使用 auth.db（DatabaseAdapter）直接执行 deleteMany，无需导入 token 模块。
+// 定时清理过期 AuthToken + Verification 记录（每 6 小时）。
+// 使用 auth.db（DatabaseAdapter）直接执行 deleteMany。
 // ============================================================
 
 export async function register() {

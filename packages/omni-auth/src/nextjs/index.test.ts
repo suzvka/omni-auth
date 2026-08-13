@@ -8,9 +8,7 @@ vi.mock("next/headers", () => ({
 import { createQuickAuth } from "./index";
 
 // ----------------------------------------------------------
-// M4 清理：原先的 two it.skip 测试引用了已删除的
-// auth.betterAuth getter，已移除。
-// 此处保留最小冒烟测试，验证 createQuickAuth 仍可导入。
+// 最小冒烟测试，验证 createQuickAuth 仍可导入。
 // ----------------------------------------------------------
 
 describe("createQuickAuth", () => {

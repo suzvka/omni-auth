@@ -21,7 +21,7 @@
 import { Pool } from "pg";
 
 // ============================================================
-// Schema Definition（与 Better Auth + omni-auth 保持一致）
+// Schema Definition（与 prisma schema / schema.declarative.json 保持一致）
 // ============================================================
 
 const TABLES = [
@@ -125,7 +125,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("🔧 omni-auth db:push v0.6.1");
+  console.log("🔧 omni-auth db:push v1.0.0");
   console.log(`   连接: ${databaseUrl.replace(/\/\/.*@/, "//***@")}`);
   console.log("");
 
@@ -162,7 +162,7 @@ async function main() {
         if (existingNames.has(col.name)) continue;
 
         // 旧版 schema 同步（列名未加引号）会把驼峰列折叠为全小写，
-        // 导致 better-auth 读取字段失败（providerid ≠ providerId）。
+        // 导致读取字段失败（providerid ≠ providerId）。
         // 检测到小写变体时重命名列以保真大小写（RENAME 不丢数据）。
         const lowerVariant = col.name.toLowerCase();
         if (existingNames.has(lowerVariant)) {

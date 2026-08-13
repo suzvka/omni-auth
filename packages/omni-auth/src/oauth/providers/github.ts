@@ -7,8 +7,8 @@
 //     clientSecret: process.env.GITHUB_CLIENT_SECRET!,
 //   }));
 //
-// M3: 实现 getOAuthConfig + getUserInfo，走 @better-auth/core/oauth2
-// 的 validateAuthorizationCode 路径，支持 state/PKCE。
+// 标准 OAuth2 路径：getOAuthConfig + getUserInfo，由 handler 经
+// @better-auth/core/oauth2 完成 code 交换（含 state/PKCE）。
 // ============================================================
 
 import type { OAuth2Tokens } from "@better-auth/core/oauth2";

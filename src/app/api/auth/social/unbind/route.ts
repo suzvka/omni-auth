@@ -11,7 +11,7 @@ export async function DELETE(request: Request) {
   try {
     const ctx = nextjsRequestContext(await headers());
 
-    // CSRF 同源校验（D13）
+    // CSRF 同源校验
     if (!checkSameOrigin(ctx)) {
       return NextResponse.json({ error: CROSS_ORIGIN_ERROR }, { status: 403 });
     }

@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============ Better Auth 认证表 ============
+// ============ 认证表 ============
 
 model User {
   id            String    @id @default(cuid())

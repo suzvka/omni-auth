@@ -80,6 +80,14 @@ function createInMemoryDb(): DatabaseAdapter {
             if (limit) sliced = sliced.slice(0, limit);
             return sliced;
         },
+        async count({ model, where }) {
+            const table = ensureModel(model);
+            let n = 0;
+            for (const [, r] of table) {
+                if (!where || where.every((w) => r[w.field] === w.value)) n++;
+            }
+            return n;
+        },
         async updateOne({ model, where, update }) { throw new Error("Not used"); },
         async updateMany({ model, where, update }) { return 0; },
         async deleteOne({ model, where }) { throw new Error("Not used"); },
@@ -650,7 +658,7 @@ describe("createOAuthHandler — initiateOAuth", () => {
         expect(callArgs.state).toBeDefined();
         expect(callArgs.state.length).toBeGreaterThan(10);
         expect(callArgs.codeVerifier).toBeDefined();
-        expect(callArgs.codeVerifier.length).toBeGreaterThan(10);
+        expect(callArgs.codeVerifier!.length).toBeGreaterThan(10);
 
         // 返回值
         expect(result.authorizationUrl).toContain("accounts.google.com");
