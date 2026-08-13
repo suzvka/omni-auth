@@ -1,5 +1,141 @@
 # Changelog
 
+## 3.0.0（2026-08-13）
+
+> **重大版本**：事务原子性、实例级注册表、类型化内部数据访问。
+> 包含 2.1.0 的全部安全加固内容。升级前请先阅读下方【升级指南】。
+
+### 新增
+
+- **事务能力**：`DatabaseAdapter` 新增可选 `transaction<T>(fn)`；
+  `PgAdapter` 以单连接 BEGIN/COMMIT/ROLLBACK 实现。`signUp` /
+  `signUpWithSocial` / OAuth 新用户创建的多表写入（user + account +
+  socialAccount）现在包入事务，任一步失败整体回滚。生命周期钩子在
+  **commit 之后**触发。新增通用辅助 `withTransaction`（未实现事务的
+  适配器回退为顺序写入并警告一次）。
+- **实例级注册表 `OmniRegistry`**：OAuth provider / 验证码
+  sender/verifier / token refresher / 审计处理器全部收编为
+  OmniAuth 实例成员，多实例互不干扰。
+- `OmniAuthConfig` 新增 `audit?: AuditHandler`、
+  `rateLimit?: OmniAuthRateLimitConfig`（可注入外部限流器，如 Redis）。
+- `OmniAuth` 新增实例方法 `setAuditHandler`、属性 `oauth`（含
+  `initiateOAuth` 的 handler）。
+- 行类型新增 `UserInsert` / `AccountInsert` / `SocialAccountInsert`
+  （`InferInsert` 重写：NOT NULL 且无默认值的列编译期必填，带默认值/
+  可空列可选），`auth.db.*.create` 的 `data` 使用该类型。
+
+### 破坏性变更
+
+1. **SDK 不再写入 `businessAccount` 表**。该表是 app 业务表，
+   `signUp` / OAuth 回调不再创建它；请在 `hooks.onUserCreated` 中
+   自行创建（见下方升级指南）。
+2. **模块级全局注册函数弃用**：`registerOAuthProvider` /
+   `registerVerificationSender` / `registerVerificationVerifier` /
+   `registerTokenRefresher` / `setAuditHandler` / `publishAuditEvent`
+   仍可用，但仅转发到**最近创建的实例**并打印一次弃用警告；
+   请改用实例方法。`oauth/handler.ts` 的 `globalHandler` /
+   `setOAuthHandler` / 模块级 `handleOAuthCallback` / `initiateOAuth`
+   已移除，统一经 `auth.handleOAuthCallback` / `auth.oauth` 调用。
+3. **`PgAdapterInstance._pool` 移除**，改为 `getPool(): Promise<Pool>`。
+4. **`PgAdapter` 空 where 防护**：`updateOne` / `updateMany` /
+   `deleteOne` / `deleteMany` 传空 `where` 数组时抛 `TypeError`
+   （防全表误操作）。
+5. **`secret` 配置改为可选**（库内当前无消费方，为会话签名预留）。
+6. `createPasswordReset` 依赖变更：需传入实例级
+   `channelVerification`（内部使用，影响自定义集成方）。
+
+### 升级指南
+
+```sh
+pnpm add omni-auth@3.0.0
+```
+
+1. **businessAccount 迁移**（必须）：
+
+```ts
+export const auth = createQuickAuth({
+  database: { url: process.env.DATABASE_URL! },
+  baseUrl,
+  hooks: {
+    onUserCreated: async ({ userId, email, name }) => {
+      await businessAccountRepo.create({
+        authUserId: userId,
+        displayName: name || email || userId,
+        status: "active",
+      });
+    },
+  },
+});
+```
+
+2. **全局注册函数** → 实例方法：
+
+```ts
+// 旧（弃用）                     // 新
+registerOAuthProvider(cfg)     → auth.registerOAuthProvider(cfg)
+registerVerificationSender(...) → auth.registerVerificationSender(...)
+registerTokenRefresher(...)     → auth.registerTokenRefresher(...)
+setAuditHandler(fn)             → createAuth({ audit: fn }) 或 auth.setAuditHandler(fn)
+```
+
+3. **OAuth 回调强制 state 校验**（2.1.0 引入）：改用对象形式参数，
+   `expectedState` 必须来自服务端保存的值（签名 cookie）：
+
+```ts
+await auth.handleOAuthCallback(provider, code, redirectUri, {
+  state: body.state,
+  expectedState: request.cookies.get("oauth_state")?.value,
+  codeVerifier: request.cookies.get("oauth_code_verifier")?.value,
+});
+```
+
+4. **自定义 DatabaseAdapter**：建议实现 `transaction`（未实现时
+   多表写入回退为顺序执行，仅警告不报错）。
+
+### 兼容性
+
+- 泛型 CRUD（`db.findOne({ model, ... })` 等）保留 `@deprecated`。
+- 位置参数形式的 `handleOAuthCallback(provider, code, redirectUri, state?, codeVerifier?)`
+  仍可用但不校验 state（已弃用）。
+
+## 2.1.0（2026-08-13）
+
+> 安全与正确性加固（随 3.0.0 一并交付，此处单独列出便于追溯）。
+
+### 新增
+
+- **OAuth state 库内强制校验**：对象形式回调参数
+  `{ state, expectedState, codeVerifier }`，state / expectedState
+  任一缺失或二者不一致抛 `OAuthStateMismatchError`。
+- **类型化错误体系**：所有错误继承 `OmniAuthError`（带机器可读
+  `code`）。新增 `RateLimitedError` / `UserExistsError` /
+  `CredentialInvalidError` / `OAuthStateMismatchError` /
+  `UniqueViolationError`；signIn 密码失败改抛 `InvalidPasswordError`
+  （消息保持"邮箱或密码错误"防枚举）。
+- **限流键修正**：signUp 限流键改为客户端 IP（防按邮箱锁死注册的
+  DoS），signIn 改为 `ip:email` 复合键；认证方法新增可选
+  `requestContext` 参数提取 IP。支持经 `config.rateLimit.limiter`
+  注入 Redis 等共享限流器。
+- `PgAdapter` 捕获 PostgreSQL `23505` 唯一约束错误并转译为
+  `UniqueViolationError`，注册流程进一步转译为 `UserExistsError` /
+  `SocialAccountConflictError`（消除 TOCTOU 裸错误）。
+- 新增 `getClientIp(ctx)`、`buildPlaceholderEmail(provider, openid)`。
+
+### 修复
+
+- **占位邮箱碰撞**：`{provider}_{openid}@oauth.usercenter` 不再截断
+  openid（截断会让不同 openid 生成相同邮箱，触发唯一约束冲突）。
+- **`authenticateChannel` 非密码凭证契约**：`credential.type !==
+  "password"` 时必须显式声明 `credential.verified = true`（调用方
+  已完成验证），否则抛 `CredentialInvalidError`；已有渠道分支去除
+  重复的用户读取。
+- `auth.db` 门面改为惰性缓存（此前每次访问新建）。
+
+### 设计决策记录
+
+- signUp 邮箱重复提示保留"该邮箱已被注册"明文（注册场景需即时反馈，
+  与 signIn 的防枚举策略有意区分）。
+
 ## 2.0.1（2026-08-13）
 
 > 修复 2.0.0 发布的 Prisma schema 表名映射缺陷。2.0.0 用户建议尽快升级。

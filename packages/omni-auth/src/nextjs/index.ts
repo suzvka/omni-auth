@@ -73,12 +73,20 @@ export interface QuickAuthConfig {
    * 也可传入任意 DatabaseAdapter 实现。
    */
   database: DatabaseAdapter | DeclarativeDbConfig;
-  /** 密钥 */
-  secret: string;
-  /** 应用基础 URL */
+  /**
+   * 密钥（可选）。
+   *
+   * 当前版本库内无消费方，为后续会话/令牌签名能力预留。
+   */
+  secret?: string;
+  /** 应用基础 URL（CSRF 同源校验等使用） */
   baseUrl: string;
   /** 生命周期钩子 */
   hooks?: LifecycleHooks;
+  /** 审计事件处理器（实例级） */
+  audit?: import("../core/audit").AuditHandler;
+  /** 速率限制配置 */
+  rateLimit?: import("../auth").OmniAuthRateLimitConfig;
 }
 
 /**
@@ -86,7 +94,7 @@ export interface QuickAuthConfig {
  *
  * 自动处理：数据库适配器连接。
  * 本 SDK 只负责凭证校验（用户是否存在 + 密码是否正确），
- * 不维护任何会话状态。
+ * 不维护任何会话状态（会话由应用层自行管理）。
  *
  * @example
  * ```ts
@@ -94,7 +102,6 @@ export interface QuickAuthConfig {
  *
  * export const auth = createQuickAuth({
  *   database: { url: process.env.DATABASE_URL },
- *   secret: process.env.BETTER_AUTH_SECRET!,
  *   baseUrl: process.env.BETTER_AUTH_URL!,
  * });
  * ```
@@ -117,5 +124,7 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
     secret: config.secret,
     baseUrl: config.baseUrl,
     hooks: config.hooks,
+    audit: config.audit,
+    rateLimit: config.rateLimit,
   });
 }

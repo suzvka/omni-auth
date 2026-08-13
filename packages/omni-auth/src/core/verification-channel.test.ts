@@ -6,9 +6,11 @@ import {
     registerVerificationVerifier,
     getVerificationSender,
     getVerificationVerifier,
+    createChannelVerification,
 } from "./verification-channel";
 import type { VerificationSender, VerificationVerifier } from "./verification-channel";
 import type { SocialAccountRef } from "../social/token";
+import { createRegistry, type OmniRegistry } from "../registry";
 
 // ============================================================
 // Mock 验证码投递器 / 验证器（委托模式：状态由实现方管理）
@@ -36,14 +38,18 @@ const mockVerifier: VerificationVerifier = {
     },
 };
 
+// 3.0.0：原语接收实例注册表作为首个参数
+let registry: OmniRegistry;
+
 beforeEach(() => {
     sentChannelRef = null;
     sentCode = null;
     verifiedChannelRef = null;
     verifiedCode = null;
     verifyResult = true;
-    registerVerificationSender("email", mockSender);
-    registerVerificationVerifier("email", mockVerifier);
+    registry = createRegistry();
+    registry.senders.set("email", mockSender);
+    registry.verifiers.set("email", mockVerifier);
 });
 
 // ---- requestCode ----
@@ -51,7 +57,7 @@ beforeEach(() => {
 describe("requestCode", () => {
     it("返回密码学安全的 6 位数字种子码", async () => {
         for (let i = 0; i < 50; i++) {
-            const code = await requestCode("email", `user${i}@example.com`);
+            const code = await requestCode(registry, "email", `user${i}@example.com`);
             expect(code).toMatch(/^\d{6}$/);
             const num = Number(code);
             expect(num).toBeGreaterThanOrEqual(100000);
@@ -60,7 +66,7 @@ describe("requestCode", () => {
     });
 
     it("调用已注册的 sender 投递种子码", async () => {
-        const code = await requestCode("email", "user@example.com");
+        const code = await requestCode(registry, "email", "user@example.com");
 
         expect(sentChannelRef).not.toBeNull();
         expect(sentChannelRef!.provider).toBe("email");
@@ -69,14 +75,14 @@ describe("requestCode", () => {
     });
 
     it("未注册 sender 时不抛错，仅返回种子码", async () => {
-        const code = await requestCode("phone", "13800000000");
+        const code = await requestCode(registry, "phone", "13800000000");
 
         expect(code).toMatch(/^\d{6}$/);
         expect(sentCode).toBeNull(); // 未触发投递
     });
 
     it("未传入 channelRef 时构造最小引用", async () => {
-        await requestCode("email", "user@example.com");
+        await requestCode(registry, "email", "user@example.com");
 
         expect(sentChannelRef).not.toBeNull();
         expect(sentChannelRef!.id).toBe("");
@@ -95,7 +101,7 @@ describe("requestCode", () => {
             profileData: { name: "Test" },
         };
 
-        await requestCode("email", "user@example.com", fullRef);
+        await requestCode(registry, "email", "user@example.com", fullRef);
 
         expect(sentChannelRef).toEqual(fullRef);
     });
@@ -106,18 +112,18 @@ describe("requestCode", () => {
 describe("verifyCode", () => {
     it("委托 verifier 并透传 true", async () => {
         verifyResult = true;
-        const ok = await verifyCode("email", "user@example.com", "123456");
+        const ok = await verifyCode(registry, "email", "user@example.com", "123456");
         expect(ok).toBe(true);
     });
 
     it("委托 verifier 并透传 false", async () => {
         verifyResult = false;
-        const ok = await verifyCode("email", "user@example.com", "000000");
+        const ok = await verifyCode(registry, "email", "user@example.com", "000000");
         expect(ok).toBe(false);
     });
 
     it("向 verifier 传入正确的 channel 与 code", async () => {
-        await verifyCode("email", "user@example.com", "654321");
+        await verifyCode(registry, "email", "user@example.com", "654321");
 
         expect(verifiedChannelRef).not.toBeNull();
         expect(verifiedChannelRef!.provider).toBe("email");
@@ -127,7 +133,7 @@ describe("verifyCode", () => {
 
     it("未注册 verifier 时抛错", async () => {
         await expect(
-            verifyCode("phone", "13800000000", "123456")
+            verifyCode(registry, "phone", "13800000000", "123456")
         ).rejects.toThrow('渠道 "phone" 未注册验证码验证器');
     });
 
@@ -142,15 +148,44 @@ describe("verifyCode", () => {
             profileData: {},
         };
 
-        await verifyCode("email", "user@example.com", "111111", fullRef);
+        await verifyCode(registry, "email", "user@example.com", "111111", fullRef);
 
         expect(verifiedChannelRef).toEqual(fullRef);
     });
 });
 
-// ---- 注册表 ----
+// ---- createChannelVerification（实例服务） ----
 
-describe("注册表", () => {
+describe("createChannelVerification", () => {
+    it("绑定实例注册表：requestCode 走注册的 sender", async () => {
+        const service = createChannelVerification(registry);
+        const code = await service.requestCode("email", "user@example.com");
+
+        expect(code).toMatch(/^\d{6}$/);
+        expect(sentCode).toBe(code);
+    });
+
+    it("绑定实例注册表：verifyCode 走注册的 verifier", async () => {
+        verifyResult = false;
+        const service = createChannelVerification(registry);
+        const ok = await service.verifyCode("email", "user@example.com", "123456");
+        expect(ok).toBe(false);
+    });
+
+    it("不同注册表互不干扰", async () => {
+        const other = createRegistry(); // 空注册表成为活跃注册表
+        const service = createChannelVerification(other);
+
+        // other 未注册 verifier → 抛错；registry 中的 mockVerifier 不被误用
+        await expect(
+            service.verifyCode("email", "user@example.com", "123456")
+        ).rejects.toThrow('渠道 "email" 未注册验证码验证器');
+    });
+});
+
+// ---- 弃用全局注册函数（转发到活跃注册表） ----
+
+describe("注册表（弃用全局函数）", () => {
     it("registerVerificationSender / getVerificationSender 往返一致", () => {
         registerVerificationSender("phone", mockSender);
         expect(getVerificationSender("phone")).toBe(mockSender);

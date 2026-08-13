@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   setAuditHandler,
   getAuditHandler,
@@ -7,6 +7,12 @@ import {
 } from "./audit";
 import type { AuditEvent, AuditHandler } from "./audit";
 import { createRequestContext } from "../adapters/request";
+import { createRegistry } from "../registry";
+
+// 3.0.0：全局审计函数已弃用，转发到最近创建的实例注册表。
+beforeEach(() => {
+  createRegistry();
+});
 
 describe("Audit Handler 注册表", () => {
   it("初始状态下 getAuditHandler 返回 null", () => {

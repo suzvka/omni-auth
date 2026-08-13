@@ -5,6 +5,8 @@
 // 生产环境建议接入 Redis 等外部存储。
 // ============================================================
 
+import { RateLimitedError } from "../errors";
+
 /** 速率限制结果 */
 export interface RateLimitResult {
   /** 是否允许本次请求 */
@@ -121,7 +123,7 @@ export function createRateLimitPresets(config?: RateLimitConfig): RateLimitPrese
 
 /**
  * 通用限流检查辅助函数。
- * @throws Error 如果超过限制
+ * @throws RateLimitedError 如果超过限制
  */
 export async function checkRateLimit(
   limiter: RateLimiter,
@@ -132,7 +134,8 @@ export async function checkRateLimit(
   const result = await limiter.check(key, maxAttempts, windowMs);
   if (!result.allowed) {
     const waitSeconds = Math.ceil((result.resetAt - Date.now()) / 1000);
-    throw new Error(
+    throw new RateLimitedError(
+      waitSeconds,
       `操作过于频繁，请 ${waitSeconds} 秒后重试`
     );
   }

@@ -40,16 +40,18 @@ export interface ColumnDef<T extends ColumnType = ColumnType> {
  * 类型参数：
  * - T：列类型字面量（"text" 等），驱动 TypeMap 推断
  * - TRequired：NOT NULL 标志（phantom，由 notNull()/primaryKey() 提升为 true）
+ * - TDefault：是否声明了 default（phantom，由 default() 提升为 true）
  */
 export class ColumnBuilder<
   T extends ColumnType = ColumnType,
-  TRequired extends boolean = boolean
+  TRequired extends boolean = boolean,
+  TDefault extends boolean = boolean
 > {
   constructor(public _def: ColumnDef<T>) {}
 
-  notNull(): ColumnBuilder<T, true> {
+  notNull(): ColumnBuilder<T, true, TDefault> {
     this._def.required = true;
-    return this as unknown as ColumnBuilder<T, true>;
+    return this as unknown as ColumnBuilder<T, true, TDefault>;
   }
 
   unique(): this {
@@ -57,15 +59,15 @@ export class ColumnBuilder<
     return this;
   }
 
-  default(value: unknown): this {
+  default(value: unknown): ColumnBuilder<T, TRequired, true> {
     this._def.default = value;
-    return this;
+    return this as unknown as ColumnBuilder<T, TRequired, true>;
   }
 
-  primaryKey(): ColumnBuilder<T, true> {
+  primaryKey(): ColumnBuilder<T, true, TDefault> {
     this._def.primaryKey = true;
     this._def.required = true;
-    return this as unknown as ColumnBuilder<T, true>;
+    return this as unknown as ColumnBuilder<T, true, TDefault>;
   }
 
   references(
@@ -137,22 +139,68 @@ type TypeMap = {
   timestamp: Date;
 };
 
-type IsRequired<T extends AnyColumnBuilder> = T extends ColumnBuilder<any, infer R>
+type IsRequired<T extends AnyColumnBuilder> = T extends ColumnBuilder<any, infer R, any>
   ? R extends true
     ? true
     : false
   : false;
 
+type HasDefault<T extends AnyColumnBuilder> = T extends ColumnBuilder<any, any, infer D>
+  ? D extends true
+    ? true
+    : false
+  : false;
+
+/** 列的 TS 值类型 */
+type ColumnTsType<T extends AnyColumnBuilder> = TypeMap[T["_def"]["type"]];
+
 /** 推断 SELECT 返回类型（全字段，required 非空，optional 可 null） */
 export type InferSelect<T extends TableDef> = {
   [K in keyof T["columns"]]: IsRequired<T["columns"][K]> extends true
-    ? TypeMap[T["columns"][K]["_def"]["type"]]
-    : TypeMap[T["columns"][K]["_def"]["type"]] | null;
+    ? ColumnTsType<T["columns"][K]>
+    : ColumnTsType<T["columns"][K]> | null;
 };
 
-/** 推断 INSERT 输入类型（省略系统字段 id/createdAt/updatedAt） */
-export type InferInsert<T extends TableDef> = Partial<
-  Omit<InferSelect<T>, "id" | "createdAt" | "updatedAt">
+// ----------------------------------------------------------
+// INSERT 类型推断
+// ----------------------------------------------------------
+
+/** INSERT 时省略的系统字段（由调用方或 DB 默认值生成） */
+type SystemKeys = "id" | "createdAt" | "updatedAt";
+
+/** 折叠交叉类型，便于阅读与断言 */
+type Prettify<T> = { [K in keyof T]: T[K] } & {};
+
+/** INSERT 必填列：NOT NULL 且无 default 的非系统字段 */
+type InsertRequiredKeys<T extends TableDef> = {
+  [K in keyof T["columns"]]: K extends SystemKeys
+    ? never
+    : IsRequired<T["columns"][K]> extends true
+      ? HasDefault<T["columns"][K]> extends true
+        ? never
+        : K
+      : never;
+}[keyof T["columns"]];
+
+/** INSERT 可选列：其余非系统字段（可空列或有默认值的列） */
+type InsertOptionalKeys<T extends TableDef> = {
+  [K in keyof T["columns"]]: K extends SystemKeys
+    ? never
+    : K extends InsertRequiredKeys<T>
+      ? never
+      : K;
+}[keyof T["columns"]];
+
+/**
+ * 推断 INSERT 输入类型。
+ *
+ * 省略系统字段 id/createdAt/updatedAt；NOT NULL 且无默认值的列必填，
+ * 可空列与带默认值的列可选。
+ */
+export type InferInsert<T extends TableDef> = Prettify<
+  { [K in InsertRequiredKeys<T>]: ColumnTsType<T["columns"][K]> } & {
+    [K in InsertOptionalKeys<T>]?: ColumnTsType<T["columns"][K]> | null;
+  }
 >;
 
 // ----------------------------------------------------------

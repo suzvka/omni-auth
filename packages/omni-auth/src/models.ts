@@ -19,7 +19,14 @@ import type {
   SearchCondition,
   OrderByCondition,
 } from "./adapters/database";
-import type { UserRow, AccountRow, SocialAccountRow } from "./schema";
+import type {
+  UserRow,
+  AccountRow,
+  SocialAccountRow,
+  UserInsert,
+  AccountInsert,
+  SocialAccountInsert,
+} from "./schema";
 
 // Re-export 行类型（保持 index.ts 导入路径不变）
 export type { UserRow, AccountRow, SocialAccountRow };
@@ -38,15 +45,32 @@ export interface ModelMap {
 /** 合法的表名（字面量联合） */
 export type ModelName = keyof ModelMap;
 
+/** model 名 → INSERT 输入类型 映射 */
+export interface InsertMap {
+  user: UserInsert;
+  account: AccountInsert;
+  socialAccount: SocialAccountInsert;
+}
+
 /** 表视图的查询条件：field 限定为该表的列名 */
 export type ModelWhere<Row> = WhereCondition<keyof Row & string>[];
+
+/**
+ * 表视图的 create 输入：InferInsert 派生类型 + 系统字段。
+ * id/createdAt 可选（调用方生成或 DB 默认），updatedAt 必填（无 DB 默认值）。
+ */
+export type ModelCreateData<Ins> = Ins & {
+  id?: string;
+  createdAt?: Date;
+  updatedAt: Date;
+};
 
 // ----------------------------------------------------------
 // 表视图
 // ----------------------------------------------------------
 
 /** 单表类型化视图：方法语义与 DatabaseAdapter 一致，行形状已知 */
-export interface ModelView<Row> {
+export interface ModelView<Row, Insert> {
   /** 查询单条记录 */
   findOne(params: { where: ModelWhere<Row> }): Promise<Row | null>;
   /** 查询多条记录（支持搜索/排序/分页） */
@@ -57,8 +81,8 @@ export interface ModelView<Row> {
     limit?: number;
     offset?: number;
   }): Promise<Row[]>;
-  /** 创建单条记录 */
-  create(params: { data: Partial<Row> }): Promise<Row>;
+  /** 创建单条记录（NOT NULL 无默认值列编译期必填） */
+  create(params: { data: ModelCreateData<Insert> }): Promise<Row>;
   /** 更新单条记录，返回更新后的记录 */
   updateOne(params: {
     where: ModelWhere<Row>;
@@ -87,9 +111,9 @@ export interface ModelView<Row> {
 /** auth.db 门面：类型化表视图 + 已弃用的泛型方法 */
 export interface DbFacade {
   // ---- 类型化表视图（推荐） ----
-  user: ModelView<UserRow>;
-  account: ModelView<AccountRow>;
-  socialAccount: ModelView<SocialAccountRow>;
+  user: ModelView<UserRow, UserInsert>;
+  account: ModelView<AccountRow, AccountInsert>;
+  socialAccount: ModelView<SocialAccountRow, SocialAccountInsert>;
 
   // ---- 泛型方法（已弃用） ----
 
@@ -150,7 +174,7 @@ export interface DbFacade {
 export function createModelView<M extends ModelName>(
   adapter: DatabaseAdapter,
   model: M
-): ModelView<ModelMap[M]> {
+): ModelView<ModelMap[M], InsertMap[M]> {
   return {
     findOne: async (params) =>
       (await adapter.findOne({ model, where: params.where })) as ModelMap[M] | null,

@@ -9,30 +9,21 @@ vi.mock("@better-auth/core/oauth2", () => ({
     validateAuthorizationCode: vi.fn(),
 }));
 
-vi.mock("../core/audit", () => ({
-    publishAuditEvent: vi.fn(),
-}));
-
 vi.mock("@better-auth/utils/password", () => ({
     hashPassword: vi.fn(),
 }));
 
 // ---- 在 mock 之后导入 ----
 
-import {
-    createOAuthHandler,
-    handleOAuthCallback,
-    initiateOAuth,
-} from "./handler";
-import { registerOAuthProvider, clearOAuthProviders } from "./registry";
-import { publishAuditEvent } from "../core/audit";
+import { createOAuthHandler } from "./handler";
 import { hashPassword } from "@better-auth/utils/password";
 import {
     createAuthorizationURL,
     validateAuthorizationCode,
 } from "@better-auth/core/oauth2";
 import type { DatabaseAdapter } from "../adapters/database";
-import type { OAuthProviderConfig } from "./types";
+import type { OAuthProviderConfig } from "../oauth/types";
+import { OAuthStateMismatchError } from "../errors";
 
 // ============================================================
 // In-memory mock DatabaseAdapter
@@ -83,12 +74,37 @@ function createInMemoryDb(): DatabaseAdapter {
             }
             return n;
         },
-        async updateOne({ model, where, update }) { throw new Error("Not used"); },
-        async updateMany({ model, where, update }) { return 0; },
-        async deleteOne({ model, where }) { throw new Error("Not used"); },
-        async deleteMany({ model, where }) { return 0; },
+        async updateOne() { throw new Error("Not used"); },
+        async updateMany() { return 0; },
+        async deleteOne() { throw new Error("Not used"); },
+        async deleteMany() { return 0; },
     };
 }
+
+// ============================================================
+// 3.0.0：handler 依赖注入构建器（实例级 provider 注册表 + 审计）
+// ============================================================
+
+function buildHandler(db: DatabaseAdapter) {
+    const providers = new Map<string, OAuthProviderConfig>();
+    const mockSocialService = {
+        findByProvider: vi.fn(),
+        bindToUser: vi.fn(),
+    };
+    const publishAudit = vi.fn().mockResolvedValue(undefined);
+
+    const handler = createOAuthHandler({
+        db,
+        getProvider: (provider) => providers.get(provider),
+        socialService: () => mockSocialService,
+        publishAudit,
+    });
+
+    return { handler, providers, mockSocialService, publishAudit };
+}
+
+/** 对象形式回调参数：state 匹配（通过库内校验） */
+const okState = (state = "state_abc123") => ({ state, expectedState: state });
 
 // ============================================================
 // 测试
@@ -96,37 +112,95 @@ function createInMemoryDb(): DatabaseAdapter {
 
 describe("createOAuthHandler — 基础", () => {
     let db: DatabaseAdapter;
-    let handler: ReturnType<typeof createOAuthHandler>;
-
-    const mockSocialService = {
-        findByProvider: vi.fn(),
-        bindToUser: vi.fn(),
-    };
+    let ctx: ReturnType<typeof buildHandler>;
 
     beforeEach(() => {
-        clearOAuthProviders();
         db = createInMemoryDb();
-        mockSocialService.findByProvider.mockReset();
-        mockSocialService.bindToUser.mockReset();
-        vi.mocked(publishAuditEvent).mockReset();
+        ctx = buildHandler(db);
         vi.mocked(hashPassword).mockReset();
-        vi.mocked(createAuthorizationURL).mockReset();
-        vi.mocked(validateAuthorizationCode).mockReset();
-
-        // 默认 mock 返回值
-        vi.mocked(publishAuditEvent).mockResolvedValue(undefined);
         vi.mocked(hashPassword).mockResolvedValue("hashed_password_mock");
-
-        handler = createOAuthHandler({
-            db,
-            socialService: mockSocialService,
-        });
     });
 
     it("未注册的 provider 应抛出错误", async () => {
         await expect(
-            handler("unknown_provider", "some_code", "http://localhost/callback")
+            ctx.handler("unknown_provider", "some_code", "http://localhost/callback")
         ).rejects.toThrow("未注册的 OAuth 平台");
+    });
+});
+
+// ============================================================
+// state 强制校验（对象形式参数）
+// ============================================================
+
+describe("createOAuthHandler — state 强制校验", () => {
+    let db: DatabaseAdapter;
+    let ctx: ReturnType<typeof buildHandler>;
+
+    beforeEach(() => {
+        db = createInMemoryDb();
+        ctx = buildHandler(db);
+        ctx.providers.set("wechat", {
+            provider: "wechat",
+            exchangeCode: async () => ({ openid: "oid_x", accessToken: "at" }),
+        });
+        vi.mocked(hashPassword).mockReset();
+        vi.mocked(hashPassword).mockResolvedValue("hashed");
+    });
+
+    it("state 与 expectedState 不匹配时抛 OAuthStateMismatchError", async () => {
+        await expect(
+            ctx.handler("wechat", "code", "http://localhost/callback", {
+                state: "attacker_state",
+                expectedState: "server_state",
+            })
+        ).rejects.toThrow(OAuthStateMismatchError);
+
+        // 不应继续换取 token
+        expect(ctx.publishAudit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                metadata: expect.objectContaining({ rejected: "state_mismatch" }),
+            }),
+        );
+    });
+
+    it("缺少 expectedState 时抛 OAuthStateMismatchError", async () => {
+        await expect(
+            ctx.handler("wechat", "code", "http://localhost/callback", {
+                state: "only_incoming",
+            })
+        ).rejects.toThrow("OAuth state 缺失");
+    });
+
+    it("缺少 state 时抛 OAuthStateMismatchError", async () => {
+        await expect(
+            ctx.handler("wechat", "code", "http://localhost/callback", {
+                expectedState: "server_state",
+            })
+        ).rejects.toThrow("OAuth state 缺失");
+    });
+
+    it("空对象参数同样拒绝", async () => {
+        await expect(
+            ctx.handler("wechat", "code", "http://localhost/callback", {})
+        ).rejects.toThrow(OAuthStateMismatchError);
+    });
+
+    it("state 匹配时正常继续", async () => {
+        ctx.mockSocialService.findByProvider.mockResolvedValue({
+            userId: "u_ok",
+            id: "sa_ok",
+            valid: 1,
+            allowPasswordUpdate: 0,
+        });
+
+        const result = await ctx.handler(
+            "wechat",
+            "code",
+            "http://localhost/callback",
+            okState(),
+        );
+
+        expect(result.userId).toBe("u_ok");
     });
 });
 
@@ -136,53 +210,38 @@ describe("createOAuthHandler — 基础", () => {
 
 describe("createOAuthHandler — 已有绑定用户", () => {
     let db: DatabaseAdapter;
-    let handler: ReturnType<typeof createOAuthHandler>;
-
-    const mockSocialService = {
-        findByProvider: vi.fn(),
-        bindToUser: vi.fn(),
-    };
+    let ctx: ReturnType<typeof buildHandler>;
 
     beforeEach(() => {
-        clearOAuthProviders();
         db = createInMemoryDb();
-        mockSocialService.findByProvider.mockReset();
-        mockSocialService.bindToUser.mockReset();
-        vi.mocked(publishAuditEvent).mockReset();
+        ctx = buildHandler(db);
         vi.mocked(hashPassword).mockReset();
-        vi.mocked(validateAuthorizationCode).mockReset();
-
-        vi.mocked(publishAuditEvent).mockResolvedValue(undefined);
         vi.mocked(hashPassword).mockResolvedValue("hashed_mock");
-
-        handler = createOAuthHandler({
-            db,
-            socialService: mockSocialService,
-        });
+        vi.mocked(validateAuthorizationCode).mockReset();
     });
 
     it("已有绑定应发布审计事件，返回 isNewUser=false（不创建会话令牌）", async () => {
-        // 使用 exchangeCode 兼容路径
-        registerOAuthProvider({
+        ctx.providers.set("wechat", {
             provider: "wechat",
             exchangeCode: async () => ({
                 openid: "oid_existing",
                 accessToken: "at_wx",
                 profileData: { nickname: "老用户" },
             }),
-        } as OAuthProviderConfig);
+        });
 
-        mockSocialService.findByProvider.mockResolvedValue({
+        ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "existing_user",
             id: "sa_1",
             valid: 1,
             allowPasswordUpdate: 0,
         });
 
-        const result = await handler(
+        const result = await ctx.handler(
             "wechat",
             "code123",
             "http://localhost/callback",
+            okState(),
         );
 
         // 返回值
@@ -197,54 +256,19 @@ describe("createOAuthHandler — 已有绑定用户", () => {
         });
 
         // 审计事件发布
-        expect(publishAuditEvent).toHaveBeenCalledWith({
+        expect(ctx.publishAudit).toHaveBeenCalledWith({
             action: "oauthLogin",
             userId: "existing_user",
-            metadata: {
-                provider: "wechat",
-                isNewUser: false,
-                state: null,
-            },
-        });
-
-        // 不应创建 user / account 记录
-        expect(hashPassword).not.toHaveBeenCalled();
-        expect(mockSocialService.bindToUser).not.toHaveBeenCalled();
-    });
-
-    it("传入 state 时审计事件 metadata 应包含 state", async () => {
-        registerOAuthProvider({
-            provider: "wechat",
-            exchangeCode: async () => ({
-                openid: "oid_state",
-                accessToken: "at",
-            }),
-        } as OAuthProviderConfig);
-
-        mockSocialService.findByProvider.mockResolvedValue({
-            userId: "u_state",
-            id: "sa_state",
-            valid: 1,
-            allowPasswordUpdate: 0,
-        });
-
-        await handler(
-            "wechat",
-            "code",
-            "http://localhost/callback",
-            "state_abc123",
-            "verifier_xyz",
-        );
-
-        expect(publishAuditEvent).toHaveBeenCalledWith({
-            action: "oauthLogin",
-            userId: "u_state",
             metadata: {
                 provider: "wechat",
                 isNewUser: false,
                 state: "state_abc123",
             },
         });
+
+        // 不应创建 user / account 记录
+        expect(hashPassword).not.toHaveBeenCalled();
+        expect(ctx.mockSocialService.bindToUser).not.toHaveBeenCalled();
     });
 });
 
@@ -254,33 +278,18 @@ describe("createOAuthHandler — 已有绑定用户", () => {
 
 describe("createOAuthHandler — 新用户注册", () => {
     let db: DatabaseAdapter;
-    let handler: ReturnType<typeof createOAuthHandler>;
-
-    const mockSocialService = {
-        findByProvider: vi.fn(),
-        bindToUser: vi.fn(),
-    };
+    let ctx: ReturnType<typeof buildHandler>;
 
     beforeEach(() => {
-        clearOAuthProviders();
         db = createInMemoryDb();
-        mockSocialService.findByProvider.mockReset();
-        mockSocialService.bindToUser.mockReset();
-        vi.mocked(publishAuditEvent).mockReset();
+        ctx = buildHandler(db);
         vi.mocked(hashPassword).mockReset();
-        vi.mocked(validateAuthorizationCode).mockReset();
-
-        vi.mocked(publishAuditEvent).mockResolvedValue(undefined);
         vi.mocked(hashPassword).mockResolvedValue("hashed_password_new");
-
-        handler = createOAuthHandler({
-            db,
-            socialService: mockSocialService,
-        });
+        vi.mocked(validateAuthorizationCode).mockReset();
     });
 
     it("新用户应自行创建 user+account+绑定+审计，返回 isNewUser=true（不创建会话令牌）", async () => {
-        registerOAuthProvider({
+        ctx.providers.set("google", {
             provider: "google",
             exchangeCode: async () => ({
                 openid: "g_new_user",
@@ -289,19 +298,20 @@ describe("createOAuthHandler — 新用户注册", () => {
                 name: "New User",
                 profileData: { avatar: "url" },
             }),
-        } as OAuthProviderConfig);
+        });
 
-        mockSocialService.findByProvider.mockResolvedValue(null);
-        mockSocialService.bindToUser.mockResolvedValue({
+        ctx.mockSocialService.findByProvider.mockResolvedValue(null);
+        ctx.mockSocialService.bindToUser.mockResolvedValue({
             id: "sa_new",
             valid: 1,
             allowPasswordUpdate: 0,
         });
 
-        const result = await handler(
+        const result = await ctx.handler(
             "google",
             "code_google",
             "http://localhost/callback",
+            okState(),
         );
 
         // 返回值
@@ -319,8 +329,8 @@ describe("createOAuthHandler — 新用户注册", () => {
         // hashPassword 被调用（随机密码哈希）
         expect(hashPassword).toHaveBeenCalledTimes(1);
 
-        // 绑定社交账户
-        expect(mockSocialService.bindToUser).toHaveBeenCalledWith(
+        // 绑定社交账户（事务内）
+        expect(ctx.mockSocialService.bindToUser).toHaveBeenCalledWith(
             result.userId,
             expect.objectContaining({
                 provider: "google",
@@ -332,55 +342,63 @@ describe("createOAuthHandler — 新用户注册", () => {
         );
 
         // 审计事件发布
-        expect(publishAuditEvent).toHaveBeenCalledWith({
+        expect(ctx.publishAudit).toHaveBeenCalledWith({
             action: "oauthLogin",
             userId: result.userId,
             metadata: {
                 provider: "google",
                 isNewUser: true,
-                state: null,
+                state: "state_abc123",
             },
         });
     });
 
-    it("平台不返回邮箱时使用占位邮箱", async () => {
-        registerOAuthProvider({
+    it("平台不返回邮箱时使用占位邮箱（完整 openid，不截断）", async () => {
+        ctx.providers.set("wechat", {
             provider: "wechat",
             exchangeCode: async () => ({
                 openid: "wx_test_user_1",
                 accessToken: "at_wx_no_email",
                 name: "微信用户",
             }),
-        } as OAuthProviderConfig);
+        });
 
-        mockSocialService.findByProvider.mockResolvedValue(null);
-        mockSocialService.bindToUser.mockResolvedValue({});
+        ctx.mockSocialService.findByProvider.mockResolvedValue(null);
+        ctx.mockSocialService.bindToUser.mockResolvedValue({
+            id: "sa_ph",
+            valid: 1,
+            allowPasswordUpdate: 0,
+        });
 
-        await handler("wechat", "code", "http://localhost/callback");
+        await ctx.handler("wechat", "code", "http://localhost/callback", okState());
 
-        // 验证 user 创建时使用了占位邮箱
+        // 验证 user 创建时使用了占位邮箱（完整 openid，2.1.0 起不再截断）
         const users = await db.findMany({
             model: "user",
             where: [],
         }) as Record<string, unknown>[];
         expect(users).toHaveLength(1);
-        expect(users[0].email).toBe("wechat_wx_test_user@oauth.usercenter");
+        expect(users[0].email).toBe("wechat_wx_test_user_1@oauth.usercenter");
     });
 
     it("平台不返回 name 时使用默认名称", async () => {
-        registerOAuthProvider({
+        ctx.providers.set("github", {
             provider: "github",
             exchangeCode: async () => ({
                 openid: "gh_no_name",
                 accessToken: "at_gh",
                 email: "gh@test.com",
             }),
-        } as OAuthProviderConfig);
+        });
 
-        mockSocialService.findByProvider.mockResolvedValue(null);
-        mockSocialService.bindToUser.mockResolvedValue({});
+        ctx.mockSocialService.findByProvider.mockResolvedValue(null);
+        ctx.mockSocialService.bindToUser.mockResolvedValue({
+            id: "sa_nn",
+            valid: 1,
+            allowPasswordUpdate: 0,
+        });
 
-        await handler("github", "code", "http://localhost/callback");
+        await ctx.handler("github", "code", "http://localhost/callback", okState());
 
         const users = await db.findMany({
             model: "user",
@@ -390,15 +408,15 @@ describe("createOAuthHandler — 新用户注册", () => {
     });
 
     it("exchangeCode 抛出错误时应传播", async () => {
-        registerOAuthProvider({
+        ctx.providers.set("wechat", {
             provider: "wechat",
             exchangeCode: async () => {
                 throw new Error("微信 token 换取失败");
             },
-        } as OAuthProviderConfig);
+        });
 
         await expect(
-            handler("wechat", "code", "http://localhost/callback")
+            ctx.handler("wechat", "code", "http://localhost/callback", okState())
         ).rejects.toThrow("微信 token 换取失败");
     });
 });
@@ -409,33 +427,18 @@ describe("createOAuthHandler — 新用户注册", () => {
 
 describe("createOAuthHandler — PKCE / state", () => {
     let db: DatabaseAdapter;
-    let handler: ReturnType<typeof createOAuthHandler>;
-
-    const mockSocialService = {
-        findByProvider: vi.fn(),
-        bindToUser: vi.fn(),
-    };
+    let ctx: ReturnType<typeof buildHandler>;
 
     beforeEach(() => {
-        clearOAuthProviders();
         db = createInMemoryDb();
-        mockSocialService.findByProvider.mockReset();
-        mockSocialService.bindToUser.mockReset();
-        vi.mocked(publishAuditEvent).mockReset();
+        ctx = buildHandler(db);
         vi.mocked(hashPassword).mockReset();
-        vi.mocked(validateAuthorizationCode).mockReset();
-
-        vi.mocked(publishAuditEvent).mockResolvedValue(undefined);
         vi.mocked(hashPassword).mockResolvedValue("hashed_pkce");
-
-        handler = createOAuthHandler({
-            db,
-            socialService: mockSocialService,
-        });
+        vi.mocked(validateAuthorizationCode).mockReset();
     });
 
     it("标准 provider 有 getOAuthConfig + getUserInfo 时走 validateAuthorizationCode", async () => {
-        registerOAuthProvider({
+        ctx.providers.set("google", {
             provider: "google",
             getOAuthConfig: () => ({
                 clientId: "google_client_id",
@@ -450,7 +453,7 @@ describe("createOAuthHandler — PKCE / state", () => {
                 name: "PKCE User",
                 profileData: {},
             }),
-        } as OAuthProviderConfig);
+        });
 
         vi.mocked(validateAuthorizationCode).mockResolvedValue({
             accessToken: "at_pkce",
@@ -458,19 +461,18 @@ describe("createOAuthHandler — PKCE / state", () => {
             accessTokenExpiresAt: new Date(Date.now() + 3600 * 1000),
         });
 
-        mockSocialService.findByProvider.mockResolvedValue({
+        ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "pkce_user",
             id: "sa_pkce",
             valid: 1,
             allowPasswordUpdate: 0,
         });
 
-        const result = await handler(
+        const result = await ctx.handler(
             "google",
             "code_pkce",
             "http://localhost/callback",
-            "state_abc",
-            "verifier_xyz",
+            { state: "state_abc", expectedState: "state_abc", codeVerifier: "verifier_xyz" },
         );
 
         // validateAuthorizationCode 被调用，且传入了 codeVerifier
@@ -487,8 +489,8 @@ describe("createOAuthHandler — PKCE / state", () => {
         expect(result.userId).toBe("pkce_user");
     });
 
-    it("标准 provider 未传 codeVerifier 时 validateAuthorizationCode 不含 codeVerifier", async () => {
-        registerOAuthProvider({
+    it("未传 codeVerifier 时 validateAuthorizationCode 不含 codeVerifier", async () => {
+        ctx.providers.set("google", {
             provider: "google",
             getOAuthConfig: () => ({
                 clientId: "cid",
@@ -502,20 +504,20 @@ describe("createOAuthHandler — PKCE / state", () => {
                 email: "no@pkce.com",
                 name: "No PKCE",
             }),
-        } as OAuthProviderConfig);
+        });
 
         vi.mocked(validateAuthorizationCode).mockResolvedValue({
             accessToken: "at_no_pkce",
         });
 
-        mockSocialService.findByProvider.mockResolvedValue({
+        ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "u_no_pkce",
             id: "sa_np",
             valid: 1,
             allowPasswordUpdate: 0,
         });
 
-        await handler("google", "code", "http://localhost/callback");
+        await ctx.handler("google", "code", "http://localhost/callback", okState());
 
         const callArgs = vi.mocked(validateAuthorizationCode).mock.calls[0][0];
         expect(callArgs.codeVerifier).toBeUndefined();
@@ -527,24 +529,23 @@ describe("createOAuthHandler — PKCE / state", () => {
             accessToken: "at_wx",
         });
 
-        registerOAuthProvider({
+        ctx.providers.set("wechat", {
             provider: "wechat",
             exchangeCode: exchangeCodeMock,
-        } as OAuthProviderConfig);
+        });
 
-        mockSocialService.findByProvider.mockResolvedValue({
+        ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "u_wx",
             id: "sa_wx",
             valid: 1,
             allowPasswordUpdate: 0,
         });
 
-        await handler(
+        await ctx.handler(
             "wechat",
             "code",
             "http://localhost/callback",
-            "state_wx",
-            "verifier_wx",
+            { state: "state_wx", expectedState: "state_wx", codeVerifier: "verifier_wx" },
         );
 
         expect(exchangeCodeMock).toHaveBeenCalledWith(
@@ -561,32 +562,22 @@ describe("createOAuthHandler — PKCE / state", () => {
 
 describe("createOAuthHandler — initiateOAuth", () => {
     let db: DatabaseAdapter;
-    let handler: ReturnType<typeof createOAuthHandler>;
-
-    const mockSocialService = {
-        findByProvider: vi.fn(),
-        bindToUser: vi.fn(),
-    };
+    let ctx: ReturnType<typeof buildHandler>;
 
     beforeEach(() => {
-        clearOAuthProviders();
         db = createInMemoryDb();
+        ctx = buildHandler(db);
         vi.mocked(createAuthorizationURL).mockReset();
-
-        handler = createOAuthHandler({
-            db,
-            socialService: mockSocialService,
-        });
     });
 
     it("未注册的 provider 应抛出错误", async () => {
         await expect(
-            handler.initiateOAuth("unknown", "http://localhost/callback")
+            ctx.handler.initiateOAuth("unknown", "http://localhost/callback")
         ).rejects.toThrow("未注册的 OAuth 平台");
     });
 
     it("标准 provider 使用 createAuthorizationURL 构建授权 URL", async () => {
-        registerOAuthProvider({
+        ctx.providers.set("google", {
             provider: "google",
             getOAuthConfig: () => ({
                 clientId: "cid",
@@ -595,13 +586,13 @@ describe("createOAuthHandler — initiateOAuth", () => {
                 tokenEndpoint: "https://oauth2.googleapis.com/token",
                 scopes: ["openid", "email"],
             }),
-        } as OAuthProviderConfig);
+        });
 
         vi.mocked(createAuthorizationURL).mockResolvedValue(
             new URL("https://accounts.google.com/o/oauth2/v2/auth?state=test&code_challenge=xxx"),
         );
 
-        const result = await handler.initiateOAuth(
+        const result = await ctx.handler.initiateOAuth(
             "google",
             "http://localhost/callback",
         );
@@ -634,16 +625,16 @@ describe("createOAuthHandler — initiateOAuth", () => {
             "https://open.weixin.qq.com/connect/qrconnect?appid=wx123&state=test",
         );
 
-        registerOAuthProvider({
+        ctx.providers.set("wechat", {
             provider: "wechat",
             buildAuthorizationUrl: buildUrlMock,
             exchangeCode: async () => ({
                 openid: "x",
                 accessToken: "y",
             }),
-        } as OAuthProviderConfig);
+        });
 
-        const result = await handler.initiateOAuth(
+        const result = await ctx.handler.initiateOAuth(
             "wechat",
             "http://localhost/callback",
         );
@@ -663,34 +654,16 @@ describe("createOAuthHandler — initiateOAuth", () => {
     });
 
     it("既无 getOAuthConfig 也无 buildAuthorizationUrl 时应抛出错误", async () => {
-        registerOAuthProvider({
+        ctx.providers.set("custom", {
             provider: "custom",
             exchangeCode: async () => ({
                 openid: "x",
                 accessToken: "y",
             }),
-        } as OAuthProviderConfig);
+        });
 
         await expect(
-            handler.initiateOAuth("custom", "http://localhost/callback")
+            ctx.handler.initiateOAuth("custom", "http://localhost/callback")
         ).rejects.toThrow("不支持 initiateOAuth");
-    });
-});
-
-// ============================================================
-// 全局 handler 测试
-// ============================================================
-
-describe("全局 handleOAuthCallback / initiateOAuth", () => {
-    it("未初始化时 handleOAuthCallback 应抛异常", async () => {
-        await expect(
-            handleOAuthCallback("wechat", "code", "http://localhost/callback")
-        ).rejects.toThrow("OAuth handler 未初始化");
-    });
-
-    it("未初始化时 initiateOAuth 应抛异常", async () => {
-        await expect(
-            initiateOAuth("wechat", "http://localhost/callback")
-        ).rejects.toThrow("OAuth handler 未初始化");
     });
 });

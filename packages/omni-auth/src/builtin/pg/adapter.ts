@@ -12,6 +12,7 @@ import type {
   SearchCondition,
   OrderByCondition,
 } from "../../adapters/database";
+import { UniqueViolationError } from "../../errors";
 
 // ----------------------------------------------------------
 // 配置
@@ -30,8 +31,8 @@ export interface PgAdapterOptions {
 }
 
 export interface PgAdapterInstance extends DatabaseAdapter {
-  /** 内部持有的 pg Pool 引用 */
-  _pool: Pool;
+  /** 获取（必要时创建）内部 pg Pool 引用 */
+  getPool(): Promise<Pool>;
   /** 初始化连接池（预热） */
   init(): Promise<void>;
   /** 关闭连接池 */
@@ -139,6 +140,27 @@ function buildOrderClause(orderBy: OrderByCondition): string {
   return `ORDER BY ${quoteIdent(orderBy.field)} ${orderBy.direction === "desc" ? "DESC" : "ASC"}`;
 }
 
+/** 唯一约束冲突（pg 错误码 23505）转译为 UniqueViolationError */
+function translatePgError(err: unknown): never {
+  if (
+    err &&
+    typeof err === "object" &&
+    (err as { code?: string }).code === "23505"
+  ) {
+    throw new UniqueViolationError(
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+  throw err;
+}
+
+/** 空 where 防护：更新/删除操作必须显式给出条件，防全表误操作 */
+function requireNonEmptyWhere(method: string, where: WhereCondition[]): void {
+  if (!where || where.length === 0) {
+    throw new TypeError(`PgAdapter.${method}: where 条件不能为空（防全表误操作）`);
+  }
+}
+
 // ----------------------------------------------------------
 // 适配器实现
 // ----------------------------------------------------------
@@ -153,41 +175,23 @@ export function buildPoolConfig(options: PgAdapterOptions): PoolConfig {
   };
 }
 
-export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
-  // 延迟加载 pg 以支持 tree-shaking（仅在使用此适配器时加载）。
-  // 使用动态 import("pg") 而非 require("pg")：esbuild 会把 require 转为
-  // __require shim，Next.js 16 的打包器无法静态分析 __require("pg")，
-  // 会报 "dynamic usage of require is not supported"。
-  let _pool: Pool | null = null;
-  let _pgPromise: Promise<typeof import("pg")> | null = null;
+/** SQL 执行器签名：Pool 级与事务 Client 级共用同一套 CRUD 构建 */
+type QueryExecutor = (
+  sql: string,
+  values: unknown[]
+) => Promise<{ rows: QueryResultRow[]; rowCount: number }>;
 
-  function loadPg(): Promise<typeof import("pg")> {
-    if (!_pgPromise) {
-      _pgPromise = import("pg");
-    }
-    return _pgPromise;
-  }
-
-  async function getPool(): Promise<Pool> {
-    if (!_pool) {
-      const pg = await loadPg();
-      _pool = new pg.Pool(buildPoolConfig(options));
-    }
-    return _pool;
-  }
-
+/** 基于给定执行器构建完整 CRUD（pool 级 / 事务级共用） */
+function buildCrudAdapter(exec: QueryExecutor): DatabaseAdapter {
   async function query<T extends QueryResultRow = QueryResultRow>(
     sql: string,
     values: unknown[] = []
   ): Promise<{ rows: T[]; rowCount: number }> {
-    const pool = await getPool();
-    const result = await pool.query<T>(sql, values);
-    return { rows: result.rows, rowCount: result.rowCount ?? result.rows.length };
+    const result = await exec(sql, values);
+    return { rows: result.rows as T[], rowCount: result.rowCount };
   }
 
   return {
-    _pool: undefined as unknown as Pool, // 由 getPool 延迟初始化
-
     // ---- CRUD ----
 
     async create({ model, data }) {
@@ -273,6 +277,7 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     },
 
     async updateOne({ model, where, update }) {
+      requireNonEmptyWhere("updateOne", where);
       const { sql: whereSql, values: wVals } = buildWhereClause(where, 1);
       const keys = Object.keys(update);
       const uVals = Object.values(update);
@@ -285,6 +290,7 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     },
 
     async updateMany({ model, where, update }) {
+      requireNonEmptyWhere("updateMany", where);
       const { sql: whereSql, values: wVals } = buildWhereClause(where, 1);
       const keys = Object.keys(update);
       const uVals = Object.values(update);
@@ -297,6 +303,7 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     },
 
     async deleteOne({ model, where }) {
+      requireNonEmptyWhere("deleteOne", where);
       const { sql: whereSql, values } = buildWhereClause(where, 1);
       const sql = `DELETE FROM ${quoteIdent(model)} WHERE ${whereSql} RETURNING *`;
       const { rows } = await query(sql, values);
@@ -304,6 +311,7 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     },
 
     async deleteMany({ model, where }) {
+      requireNonEmptyWhere("deleteMany", where);
       const { sql: whereSql, values } = buildWhereClause(where, 1);
       const sql = `DELETE FROM ${quoteIdent(model)} WHERE ${whereSql}`;
       const { rowCount } = await query(sql, values);
@@ -343,8 +351,89 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
       const { rows } = await query(sql, [...dataValues, ...extraValues]);
       return rows[0] ?? null;
     },
+  };
+}
+
+export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
+  // 延迟加载 pg 以支持 tree-shaking（仅在使用此适配器时加载）。
+  // 使用动态 import("pg") 而非 require("pg")：esbuild 会把 require 转为
+  // __require shim，Next.js 16 的打包器无法静态分析 __require("pg")，
+  // 会报 "dynamic usage of require is not supported"。
+  let _pool: Pool | null = null;
+  let _pgPromise: Promise<typeof import("pg")> | null = null;
+
+  function loadPg(): Promise<typeof import("pg")> {
+    if (!_pgPromise) {
+      _pgPromise = import("pg");
+    }
+    return _pgPromise;
+  }
+
+  async function getPool(): Promise<Pool> {
+    if (!_pool) {
+      const pg = await loadPg();
+      _pool = new pg.Pool(buildPoolConfig(options));
+    }
+    return _pool;
+  }
+
+  /** Pool 级执行器（含唯一约束错误转译） */
+  const poolExec: QueryExecutor = async (sql, values) => {
+    const pool = await getPool();
+    try {
+      const result = await pool.query(sql, values);
+      return { rows: result.rows, rowCount: result.rowCount ?? result.rows.length };
+    } catch (err) {
+      translatePgError(err);
+    }
+  };
+
+  const crud = buildCrudAdapter(poolExec);
+
+  return {
+    ...crud,
+
+    // ---- 事务 ----
+
+    /**
+     * 单连接事务：BEGIN → fn(tx) → COMMIT，抛错则 ROLLBACK。
+     * tx 适配器与主适配器语义一致，但所有查询走事务绑定的连接。
+     */
+    async transaction<T>(fn: (tx: DatabaseAdapter) => Promise<T>): Promise<T> {
+      const pool = await getPool();
+      const client = await pool.connect();
+      const clientExec: QueryExecutor = async (sql, values) => {
+        try {
+          const result = await client.query(sql, values);
+          return { rows: result.rows, rowCount: result.rowCount ?? result.rows.length };
+        } catch (err) {
+          translatePgError(err);
+        }
+      };
+      const txAdapter = buildCrudAdapter(clientExec);
+
+      try {
+        await client.query("BEGIN");
+        const result = await fn(txAdapter);
+        await client.query("COMMIT");
+        return result;
+      } catch (err) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackErr) {
+          console.error("[PgAdapter] ROLLBACK 失败:", rollbackErr);
+        }
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
 
     // ---- 生命周期 ----
+
+    async getPool() {
+      return getPool();
+    },
 
     async init() {
       await getPool(); // 预热连接池

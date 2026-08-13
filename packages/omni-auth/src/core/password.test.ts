@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { hashPassword, verifyPassword } from "@better-auth/utils/password";
 import { createPasswordReset } from "./password";
-import { registerVerificationSender, registerVerificationVerifier } from "./verification-channel";
+import { createChannelVerification } from "./verification-channel";
 import type { VerificationSender, VerificationVerifier } from "./verification-channel";
 import type { DatabaseAdapter, WhereCondition } from "../adapters/database";
 import type { SocialAccountRef } from "../social/token";
+import { createRegistry, type OmniRegistry } from "../registry";
 
 // ============================================================
 // 内存 Mock DatabaseAdapter
@@ -168,13 +169,16 @@ const NEW_PASSWORD = "newpass456";
 
 describe("createPasswordReset", () => {
     let db: MockDB;
+    let registry: OmniRegistry;
 
     beforeEach(async () => {
         db = createMockDB();
         sentCode = null;
         sentAt = null;
-        registerVerificationSender(PROVIDER, mockSender);
-        registerVerificationVerifier(PROVIDER, mockVerifier);
+        // 3.0.0：验证码 sender/verifier 注册在实例注册表
+        registry = createRegistry();
+        registry.senders.set(PROVIDER, mockSender);
+        registry.verifiers.set(PROVIDER, mockVerifier);
 
         // 预置：用户
         db._createRaw("user", {
@@ -215,7 +219,7 @@ describe("createPasswordReset", () => {
 
     describe("reset", () => {
         it("有效验证码 + 新密码 → 密码更新 + 返回 userId", async () => {
-            const pr = createPasswordReset({ db });
+            const pr = createPasswordReset({ db, channelVerification: createChannelVerification(registry) });
 
             // 1. 请求重置（发码）
             await pr.requestReset(PROVIDER, OPENID);
@@ -238,7 +242,7 @@ describe("createPasswordReset", () => {
         });
 
         it("无效验证码 → 抛错且不修改密码", async () => {
-            const pr = createPasswordReset({ db });
+            const pr = createPasswordReset({ db, channelVerification: createChannelVerification(registry) });
 
             await expect(
                 pr.reset(PROVIDER, OPENID, "000000", NEW_PASSWORD)
@@ -250,7 +254,7 @@ describe("createPasswordReset", () => {
         });
 
         it("验证码已过期（渠道侧判定）→ 抛错", async () => {
-            const pr = createPasswordReset({ db });
+            const pr = createPasswordReset({ db, channelVerification: createChannelVerification(registry) });
 
             await pr.requestReset(PROVIDER, OPENID);
             const code = sentCode!;
@@ -264,7 +268,7 @@ describe("createPasswordReset", () => {
         });
 
         it("渠道未绑定用户 → 抛错", async () => {
-            const pr = createPasswordReset({ db });
+            const pr = createPasswordReset({ db, channelVerification: createChannelVerification(registry) });
 
             // 为不存在的渠道发码（sender 仍会发送，但 socialAccount 不存在）
             await pr.requestReset(PROVIDER, "nobody@example.com");
@@ -276,7 +280,7 @@ describe("createPasswordReset", () => {
         });
 
         it("用户未设置密码 → 抛错", async () => {
-            const pr = createPasswordReset({ db });
+            const pr = createPasswordReset({ db, channelVerification: createChannelVerification(registry) });
 
             // 删除 credential account
             db._records("account").length = 0;

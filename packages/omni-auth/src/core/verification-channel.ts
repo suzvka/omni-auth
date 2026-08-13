@@ -7,10 +7,14 @@
 // 2. verifyCode：委托渠道注册的 verifier 判定验证结果，库
 //    无条件透传返回值，不做任何状态存储。
 // 验证码的存储、TTL、一次性消费、防重放均由渠道实现方自行保证。
+//
+// 3.0.0 起注册表收编为 OmniAuth 实例成员（OmniRegistry），
+// 模块级全局注册函数已弃用，仅转发到最近创建的实例。
 // ============================================================
 
 import { randomInt } from "crypto";
 import type { SocialAccountRef } from "../social/token";
+import { requireActiveRegistry, type OmniRegistry } from "../registry";
 
 // ---- 类型 ----
 
@@ -40,35 +44,40 @@ export interface VerificationVerifier {
     verify(channel: SocialAccountRef, code: string): Promise<boolean>;
 }
 
-// ---- 注册表 ----
+// ---- 注册表所需的最小视图 ----
 
-const senderRegistry = new Map<string, VerificationSender>();
-const verifierRegistry = new Map<string, VerificationVerifier>();
+export type VerificationRegistry = Pick<OmniRegistry, "senders" | "verifiers">;
 
+// ---- 弃用的模块级全局注册函数（转发到最近实例） ----
+
+/** @deprecated 使用 OmniAuth 实例方法 registerVerificationSender 替代 */
 export function registerVerificationSender(
     provider: string,
     sender: VerificationSender
 ): void {
-    senderRegistry.set(provider, sender);
+    requireActiveRegistry("registerVerificationSender").senders.set(provider, sender);
 }
 
+/** @deprecated 使用 OmniAuth 实例注册表替代 */
 export function getVerificationSender(
     provider: string
 ): VerificationSender | undefined {
-    return senderRegistry.get(provider);
+    return requireActiveRegistry("getVerificationSender").senders.get(provider);
 }
 
+/** @deprecated 使用 OmniAuth 实例方法 registerVerificationVerifier 替代 */
 export function registerVerificationVerifier(
     provider: string,
     verifier: VerificationVerifier
 ): void {
-    verifierRegistry.set(provider, verifier);
+    requireActiveRegistry("registerVerificationVerifier").verifiers.set(provider, verifier);
 }
 
+/** @deprecated 使用 OmniAuth 实例注册表替代 */
 export function getVerificationVerifier(
     provider: string
 ): VerificationVerifier | undefined {
-    return verifierRegistry.get(provider);
+    return requireActiveRegistry("getVerificationVerifier").verifiers.get(provider);
 }
 
 // ---- 纯辅助 ----
@@ -89,7 +98,7 @@ function buildMinimalRef(
     };
 }
 
-// ---- 原语 ----
+// ---- 原语（基于实例注册表） ----
 
 /**
  * 向指定渠道请求验证码（生成种子码）。
@@ -101,12 +110,14 @@ function buildMinimalRef(
  *
  * sender 未注册时不抛错：仅返回码，投递由上层自行完成。
  *
+ * @param registry       实例注册表
  * @param provider       渠道类型（email / phone / wechat 等）
  * @param providerOpenid 渠道标识符（邮箱地址、手机号、openid 等）
  * @param channelRef     可选完整渠道引用；不提供则构造最小引用
  * @returns 生成的种子码
  */
 export async function requestCode(
+    registry: VerificationRegistry,
     provider: string,
     providerOpenid: string,
     channelRef?: SocialAccountRef
@@ -114,7 +125,7 @@ export async function requestCode(
     const code = randomInt(100000, 1000000).toString();
     const ref = channelRef ?? buildMinimalRef(provider, providerOpenid);
 
-    const sender = senderRegistry.get(provider);
+    const sender = registry.senders.get(provider);
     if (sender) {
         await sender.send(ref, code);
     }
@@ -129,6 +140,7 @@ export async function requestCode(
  * 1. 查找 provider 注册的 verifier（未注册则抛错）
  * 2. 调用 verifier.verify() 并透传验证结果
  *
+ * @param registry       实例注册表
  * @param provider       渠道类型
  * @param providerOpenid 渠道标识符
  * @param code           用户提交的验证码
@@ -136,12 +148,13 @@ export async function requestCode(
  * @returns 渠道返回的验证结果
  */
 export async function verifyCode(
+    registry: VerificationRegistry,
     provider: string,
     providerOpenid: string,
     code: string,
     channelRef?: SocialAccountRef
 ): Promise<boolean> {
-    const verifier = verifierRegistry.get(provider);
+    const verifier = registry.verifiers.get(provider);
     if (!verifier) {
         throw new Error(`渠道 "${provider}" 未注册验证码验证器`);
     }
@@ -149,10 +162,10 @@ export async function verifyCode(
     return verifier.verify(ref, code);
 }
 
-// ---- 工厂（auth.ts 构造时使用） ----
+// ---- 工厂（auth.ts 构造时使用，依赖注入实例注册表） ----
 
 /** 渠道验证码编排器：生成种子码 + 委托验证，无状态、无 db 依赖 */
-export function createChannelVerification() {
+export function createChannelVerification(registry: VerificationRegistry) {
     return {
         /** 生成种子码并（可选）投递，返回种子码 */
         requestCode(
@@ -160,7 +173,7 @@ export function createChannelVerification() {
             providerOpenid: string,
             channelRef?: SocialAccountRef
         ): Promise<string> {
-            return requestCode(provider, providerOpenid, channelRef);
+            return requestCode(registry, provider, providerOpenid, channelRef);
         },
 
         /** 委托渠道验证验证码 */
@@ -170,7 +183,7 @@ export function createChannelVerification() {
             code: string,
             channelRef?: SocialAccountRef
         ): Promise<boolean> {
-            return verifyCode(provider, providerOpenid, code, channelRef);
+            return verifyCode(registry, provider, providerOpenid, code, channelRef);
         },
     };
 }

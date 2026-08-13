@@ -2,44 +2,87 @@
 // OmniAuth — SDK 主类
 //
 // 提供框架无关的认证 API。
+//
+// 3.0.0 起：
+// - 多表写入（注册/社交注册/OAuth 新用户）包入事务（适配器支持时）；
+// - OAuth provider / 验证码 sender/verifier / token refresher /
+//   审计处理器均为实例级注册表（OmniRegistry），多实例互不干扰；
+// - SDK 不再写入 app 业务表（businessAccount），由 hooks 自行处理；
+// - 限流键引入客户端 IP，支持注入外部限流器（如 Redis）。
 // ============================================================
 
 import { randomUUID } from "crypto";
 import { hashPassword, verifyPassword } from "@better-auth/utils/password";
 import type { DatabaseAdapter } from "./adapters/database";
+import { withTransaction } from "./adapters/database";
+import type { RequestContext } from "./adapters/request";
+import { getClientIp } from "./adapters/request";
 import type { PublicUser } from "./types";
-import type { LifecycleHooks, UserCreatedPayload } from "./core/lifecycle";
+import type { LifecycleHooks } from "./core/lifecycle";
 import { createSocialService } from "./social/service";
-import { registerTokenRefresher, type TokenRefresher, type SocialAccountRef } from "./social/token";
-import { registerOAuthProvider } from "./oauth/registry";
+import type { TokenRefresher, SocialAccountRef } from "./social/token";
 import type { OAuthProviderConfig } from "./oauth/types";
-import { createOAuthHandler, setOAuthHandler } from "./oauth/handler";
+import { createOAuthHandler, type OAuthHandler, type OAuthCallbackOptions } from "./oauth/handler";
 import type { OAuthCallbackResult } from "./oauth/types";
 import { createPasswordReset } from "./core/password";
 import { hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
-import { publishAuditEvent } from "./core/audit";
-import { createChannelVerification, registerVerificationSender, registerVerificationVerifier } from "./core/verification-channel";
+import { dispatchAuditEvent, type AuditEvent, type AuditHandler } from "./core/audit";
+import { createChannelVerification } from "./core/verification-channel";
 import type { VerificationSender, VerificationVerifier } from "./core/verification-channel";
 import { createDbFacade, type DbFacade } from "./models";
 import {
   phoneToSyntheticEmail,
+  buildPlaceholderEmail,
   generateRandomPassword,
 } from "./core/channel-mapping";
-import { createMemoryRateLimiter, checkRateLimit } from "./core/rateLimit";
+import {
+  createMemoryRateLimiter,
+  checkRateLimit,
+  type RateLimiter,
+} from "./core/rateLimit";
+import {
+  InvalidPasswordError,
+  UserExistsError,
+  CredentialInvalidError,
+  SocialAccountConflictError,
+  UniqueViolationError,
+} from "./errors";
+import { createRegistry, type OmniRegistry } from "./registry";
 
 // ----------------------------------------------------------
 // SDK 配置
 // ----------------------------------------------------------
 
+/** 限流策略配置 */
+export interface OmniAuthRateLimitConfig {
+  /** 速率限制器实例（不提供则使用进程内存实现，多实例部署请注入 Redis 等共享实现） */
+  limiter?: RateLimiter;
+  /** 登录：默认 5 次 / 15 分钟（键 = ip:email） */
+  signIn?: { maxAttempts: number; windowMs: number };
+  /** 注册：默认 3 次 / 1 小时（键 = ip，防按邮箱锁死注册） */
+  signUp?: { maxAttempts: number; windowMs: number };
+  /** 密码重置：默认 3 次 / 10 分钟 */
+  passwordReset?: { maxAttempts: number; windowMs: number };
+}
+
 export interface OmniAuthConfig {
   /** 数据库适配器（必填） */
   database: DatabaseAdapter;
-  /** 密钥 */
-  secret: string;
-  /** 应用基础 URL（用于生成重置链接等） */
+  /**
+   * 密钥（可选）。
+   *
+   * 当前版本库内无消费方，为后续会话/令牌签名能力预留；
+   * 传入不会报错，仅作保留。
+   */
+  secret?: string;
+  /** 应用基础 URL（CSRF 同源校验等使用） */
   baseUrl: string;
   /** 生命周期钩子 */
   hooks?: LifecycleHooks;
+  /** 审计事件处理器（实例级） */
+  audit?: AuditHandler;
+  /** 速率限制配置 */
+  rateLimit?: OmniAuthRateLimitConfig;
 }
 
 // ----------------------------------------------------------
@@ -92,6 +135,13 @@ export interface ChannelAuthInput {
     type: string;
     /** 凭证值 */
     value: string;
+    /**
+     * 非密码凭证契约：调用方必须已完成验证并显式声明 verified=true。
+     *
+     * type !== "password" 且 verified !== true 时抛 CredentialInvalidError。
+     * 库不代为验证 smsCode / oauthCode 等凭证，验证责任在调用方。
+     */
+    verified?: boolean;
   };
   /** 用户资料（新用户注册时使用） */
   profile?: {
@@ -142,87 +192,116 @@ export interface SignUpWithSocialInput {
 }
 
 // ----------------------------------------------------------
+// 限流默认策略
+// ----------------------------------------------------------
+
+const DEFAULT_SIGN_IN_LIMIT = { maxAttempts: 5, windowMs: 15 * 60 * 1000 };
+const DEFAULT_SIGN_UP_LIMIT = { maxAttempts: 3, windowMs: 60 * 60 * 1000 };
+const DEFAULT_RESET_LIMIT = { maxAttempts: 3, windowMs: 10 * 60 * 1000 };
+
+// ----------------------------------------------------------
 // OmniAuth 主类
 // ----------------------------------------------------------
 
 export class OmniAuth {
   private config: OmniAuthConfig;
+  /** 实例级注册表（OAuth provider / sender / verifier / refresher / audit） */
+  private _registry: OmniRegistry;
   private _socialService: ReturnType<typeof createSocialService>;
-  private _passwordReset: ReturnType<typeof createPasswordReset> | null = null;
-  private _channelVerification: ReturnType<typeof createChannelVerification> | null = null;
-  /** 速率限制器（内存实现，各接口独立限流） */
-  private _signInRateLimit = createMemoryRateLimiter();
-  private _signUpRateLimit = createMemoryRateLimiter();
-  private _passwordResetRateLimit = createMemoryRateLimiter();
-  /** user.create.after 钩子列表（signUp 内联触发） */
+  private _oauthHandler: OAuthHandler;
+  private _passwordReset: ReturnType<typeof createPasswordReset>;
+  private _channelVerification: ReturnType<typeof createChannelVerification>;
+  /** 类型化数据访问门面（惰性缓存） */
+  private _dbFacade: DbFacade | null = null;
+  /** 速率限制器（默认内存实现，可经 config.rateLimit.limiter 注入） */
+  private _rateLimiter: RateLimiter;
+  private _signInLimit: { maxAttempts: number; windowMs: number };
+  private _signUpLimit: { maxAttempts: number; windowMs: number };
+  private _passwordResetLimit: { maxAttempts: number; windowMs: number };
+  /** user.create.after 钩子列表（事务提交后触发） */
   private _afterUserCreateHooks: Array<(user: { id: string; email?: string; name?: string }) => Promise<void>> = [];
 
   constructor(config: OmniAuthConfig) {
     this.config = config;
 
-    // 创建社交账户服务
-    this._socialService = createSocialService(config.database);
+    // 实例级注册表（多实例互不干扰）
+    this._registry = createRegistry();
+    if (config.audit) {
+      this._registry.auditHandler = config.audit;
+    }
 
-    // 初始化 OAuth handler
-    const oauthHandler = createOAuthHandler({
-      db: config.database,
-      socialService: this._socialService,
+    // 限流配置
+    this._rateLimiter = config.rateLimit?.limiter ?? createMemoryRateLimiter();
+    this._signInLimit = config.rateLimit?.signIn ?? DEFAULT_SIGN_IN_LIMIT;
+    this._signUpLimit = config.rateLimit?.signUp ?? DEFAULT_SIGN_UP_LIMIT;
+    this._passwordResetLimit =
+      config.rateLimit?.passwordReset ?? DEFAULT_RESET_LIMIT;
+
+    // 社交账户服务（token refresher 经实例注册表查询）
+    this._socialService = createSocialService(config.database, {
+      getTokenRefresher: (provider) => this._registry.tokenRefreshers.get(provider),
     });
-    setOAuthHandler(oauthHandler);
 
-    // 初始化密码重置
+    // OAuth handler（依赖注入：provider 注册表 / 审计发布均走实例）
+    this._oauthHandler = createOAuthHandler({
+      db: config.database,
+      getProvider: (provider) => this._registry.oauthProviders.get(provider),
+      socialService: (db) =>
+        createSocialService(db, {
+          getTokenRefresher: (provider) => this._registry.tokenRefreshers.get(provider),
+        }),
+      publishAudit: (event) => this._publishAudit(event),
+    });
+
+    // 渠道验证码（委托模式，实例注册表）
+    this._channelVerification = createChannelVerification(this._registry);
+
+    // 密码重置（依赖实例级渠道验证码服务）
     this._passwordReset = createPasswordReset({
       db: config.database,
+      channelVerification: this._channelVerification,
     });
 
-    // 初始化渠道验证码（委托模式，无状态、无 db 依赖）
-    this._channelVerification = createChannelVerification();
-
     // ----------------------------------------------------------
-    // 收集 user.create.after hooks（signUp / OAuth 回调内联触发）
+    // 收集 user.create.after hooks（signUp / OAuth 回调，事务提交后触发）
     // ----------------------------------------------------------
 
-    // 1. SDK 级别 onUserCreated
     if (config.hooks?.onUserCreated) {
       const onUserCreated = config.hooks.onUserCreated;
       this._afterUserCreateHooks.push(async (user: { id: string; email?: string; name?: string }) => {
         await onUserCreated({ userId: user.id, email: user.email, name: user.name });
       });
     }
-
   }
 
   // ----------------------------------------------------------
-  // 用户认证
+  // 内部辅助
   // ----------------------------------------------------------
 
-  async signUp(input: SignUpInput): Promise<SignUpResult> {
-    // 0. 速率限制：3 次/小时
-    await checkRateLimit(this._signUpRateLimit, input.email, 3, 60 * 60 * 1000);
+  /** 实例级审计发布 */
+  private async _publishAudit(event: Omit<AuditEvent, "timestamp">): Promise<void> {
+    await dispatchAuditEvent(this._registry.auditHandler, event);
+  }
 
-    // 1. 验证密码长度
-    if (input.password.length < 6) {
-      throw new Error("密码长度不能少于 6 位");
-    }
+  /** 在事务中执行多表写入（适配器不支持事务时回退顺序写入并警告） */
+  private async _withTransaction<T>(fn: (tx: DatabaseAdapter) => Promise<T>): Promise<T> {
+    return withTransaction(this.config.database, fn);
+  }
 
-    // 2. 检查邮箱是否已注册
-    const existingUser = await this.config.database.findOne({
-      model: "user",
-      where: [{ field: "email", value: input.email }],
-    });
-    if (existingUser) {
-      throw new Error("该邮箱已被注册");
-    }
-
-    // 3. 哈希密码
-    const hashedPassword = await hashPassword(input.password);
-
-    // 4. 创建 user + account
+  /**
+   * 注册核心三件套：user + credential account + SocialAccount 通道记录。
+   * 由调用方包入事务，保证原子提交。
+   */
+  private async _createUserWithChannel(
+    input: SignUpInput,
+    hashedPassword: string,
+    tx: DatabaseAdapter
+  ): Promise<string> {
+    const dbf = createDbFacade(tx);
     const userId = randomUUID();
     const now = new Date();
 
-    await this.config.database.create({
-      model: "user",
+    await dbf.user.create({
       data: {
         id: userId,
         name: input.name,
@@ -234,8 +313,7 @@ export class OmniAuth {
       },
     });
 
-    await this.config.database.create({
-      model: "account",
+    await dbf.account.create({
       data: {
         id: randomUUID(),
         accountId: input.email,
@@ -247,57 +325,128 @@ export class OmniAuth {
       },
     });
 
-    // 5. 触发 user.create.after 钩子
-    // ---- 在 BusinessAccount 创建之前触发，避免钩子重复创建导致 @@unique 约束冲突
-    for (const hook of this._afterUserCreateHooks) {
-      try {
-        await hook({ id: userId, email: input.email, name: input.name });
-      } catch (err) {
-        console.error("[signUp] user.create.after hook 执行失败:", err);
-      }
-    }
-
-    // 4b. 创建 BusinessAccount
-    // ---- 检查是否已存在（onUserCreated 钩子可能已创建）
-    const existingBiz = await this.config.database.findOne({
-      model: "businessAccount",
-      where: [{ field: "authUserId", value: userId }],
-    });
-    if (!existingBiz) {
-      await this.config.database.create({
-        model: "businessAccount",
-        data: {
-          id: randomUUID(),
-          authUserId: userId,
-          displayName: input.name || input.email,
-          status: "active",
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-    }
-
-    // 6. 写入 SocialAccount 通道记录
+    // 通道记录（同事务写入，失败即整体回滚）
     const channelProvider = input.channel?.provider ?? "email";
     const channelId = input.channel?.identifier ?? input.email;
+    await createSocialService(tx).bindToUser(userId, {
+      provider: channelProvider,
+      providerOpenid: channelId,
+    });
 
-    if (channelProvider && channelId) {
+    return userId;
+  }
+
+  /** 事务提交后触发 user.create.after 钩子（失败仅记录，不影响注册结果） */
+  private async _fireUserCreatedHooks(user: { id: string; email?: string; name?: string }): Promise<void> {
+    for (const hook of this._afterUserCreateHooks) {
       try {
-        await this._socialService.bindToUser(userId, {
-          provider: channelProvider,
-          providerOpenid: channelId,
-        });
-      } catch (channelErr: unknown) {
-        console.warn(
-          `[signUp] 通道记录写入失败 (userId=${userId}, provider=${channelProvider}):`,
-          channelErr instanceof Error ? channelErr.message : String(channelErr)
-        );
+        await hook(user);
+      } catch (err) {
+        console.error("[OmniAuth] user.create.after hook 执行失败:", err);
       }
     }
+  }
 
-    publishAuditEvent({ action: "signUp", userId });
+  /** 为指定渠道构建合成邮箱 */
+  private _buildChannelEmail(provider: string, providerOpenid: string): string {
+    if (provider === "phone") {
+      return phoneToSyntheticEmail(providerOpenid);
+    }
+    if (provider === "email") {
+      return providerOpenid;
+    }
+    // OAuth 等其他渠道：占位邮箱（完整 openid，不截断）
+    return buildPlaceholderEmail(provider, providerOpenid);
+  }
 
-    // 7. 读取完整用户信息并返回
+  /** 从数据库读取完整用户信息并转为 PublicUser */
+  private async _readPublicUser(userId: string): Promise<PublicUser> {
+    const record = await this.db.user.findOne({
+      where: [{ field: "id", value: userId }],
+    });
+
+    if (!record) {
+      // 兜底：用 ID 构造最小化对象
+      return {
+        id: userId,
+        name: "",
+        email: "",
+        emailVerified: false,
+        image: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
+
+    return {
+      id: record.id,
+      name: record.name ?? "",
+      email: record.email ?? "",
+      emailVerified: record.emailVerified ?? false,
+      image: record.image ?? null,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  // ----------------------------------------------------------
+  // 用户认证
+  // ----------------------------------------------------------
+
+  /**
+   * 邮箱密码注册。
+   *
+   * @param input 注册信息
+   * @param requestContext 可选请求上下文（提供时按客户端 IP 限流）
+   * @throws UserExistsError 邮箱已注册
+   * @throws RateLimitedError 超过限流
+   */
+  async signUp(input: SignUpInput, requestContext?: RequestContext): Promise<SignUpResult> {
+    // 0. 速率限制：键为客户端 IP（防按邮箱锁死注册的 DoS）
+    const ip = getClientIp(requestContext);
+    await checkRateLimit(
+      this._rateLimiter,
+      `signUp:${ip}`,
+      this._signUpLimit.maxAttempts,
+      this._signUpLimit.windowMs
+    );
+
+    // 1. 验证密码长度
+    if (input.password.length < 6) {
+      throw new Error("密码长度不能少于 6 位");
+    }
+
+    // 2. 检查邮箱是否已注册（友好提示；唯一约束在事务内兜底）
+    const existingUser = await this.db.user.findOne({
+      where: [{ field: "email", value: input.email }],
+    });
+    if (existingUser) {
+      throw new UserExistsError("该邮箱已被注册");
+    }
+
+    // 3. 哈希密码（事务外执行，避免 CPU 密集操作撑开事务）
+    const hashedPassword = await hashPassword(input.password);
+
+    // 4. 事务创建 user + account + 通道记录
+    let userId: string;
+    try {
+      userId = await this._withTransaction((tx) =>
+        this._createUserWithChannel(input, hashedPassword, tx)
+      );
+    } catch (err) {
+      // 并发注册时预检查可能漏判，由唯一约束兜底并转译为友好错误
+      if (err instanceof UniqueViolationError) {
+        throw new UserExistsError("该邮箱已被注册");
+      }
+      throw err;
+    }
+
+    // 5. 事务提交后触发 user.create.after 钩子
+    await this._fireUserCreatedHooks({ id: userId, email: input.email, name: input.name });
+
+    await this._publishAudit({ action: "signUp", userId, ip });
+
+    // 6. 读取完整用户信息并返回
     const user = await this._readPublicUser(userId);
 
     return {
@@ -306,53 +455,67 @@ export class OmniAuth {
     };
   }
 
-  async signIn(input: SignInInput): Promise<SignInResult> {
-    // 0. 速率限制：5 次/15 分钟
-    await checkRateLimit(this._signInRateLimit, input.email, 5, 15 * 60 * 1000);
+  /**
+   * 邮箱密码登录。
+   *
+   * @param input 登录信息
+   * @param requestContext 可选请求上下文（提供时按 ip:email 复合键限流）
+   * @throws InvalidPasswordError 邮箱或密码错误（统一消息防枚举）
+   * @throws RateLimitedError 超过限流
+   */
+  async signIn(input: SignInInput, requestContext?: RequestContext): Promise<SignInResult> {
+    // 0. 速率限制：键为 ip:email 复合
+    const ip = getClientIp(requestContext);
+    await checkRateLimit(
+      this._rateLimiter,
+      `signIn:${ip}:${input.email}`,
+      this._signInLimit.maxAttempts,
+      this._signInLimit.windowMs
+    );
 
     // 1. 查找用户
-    const user = await this.config.database.findOne({
-      model: "user",
+    const user = await this.db.user.findOne({
       where: [{ field: "email", value: input.email }],
-    }) as Record<string, unknown> | null;
+    });
 
     // 2. 查找 credential account
     const account = user
-      ? await this.config.database.findOne({
-          model: "account",
+      ? await this.db.account.findOne({
           where: [
             { field: "userId", value: user.id },
             { field: "providerId", value: "credential" },
           ],
-        }) as Record<string, unknown> | null
+        })
       : null;
 
     // 3. 统一错误消息防枚举
     if (!user || !account || !account.password) {
-      publishAuditEvent({
+      await this._publishAudit({
         action: "signInFailed",
+        ip,
         metadata: { email: input.email },
       });
-      throw new Error("邮箱或密码错误");
+      throw new InvalidPasswordError("邮箱或密码错误");
     }
 
     // 4. 校验密码
-    const isValid = await verifyPassword(account.password as string, input.password);
+    const isValid = await verifyPassword(account.password, input.password);
     if (!isValid) {
-      publishAuditEvent({
+      await this._publishAudit({
         action: "signInFailed",
+        ip,
         metadata: { email: input.email },
       });
-      throw new Error("邮箱或密码错误");
+      throw new InvalidPasswordError("邮箱或密码错误");
     }
 
-    publishAuditEvent({ action: "signIn", userId: user.id as string });
+    await this._publishAudit({ action: "signIn", userId: user.id, ip });
 
     // 5. 读取完整用户信息并返回
-    const fullUser = await this._readPublicUser(user.id as string);
+    const fullUser = await this._readPublicUser(user.id);
 
     return {
-      userId: user.id as string,
+      userId: user.id,
       user: fullUser,
     };
   }
@@ -364,8 +527,21 @@ export class OmniAuth {
   /**
    * 统一通道认证入口。
    * 自动判断注册/登录：渠道不存在则新建用户 + 绑定；已存在则直接登录。
+   *
+   * 非密码凭证契约：调用方必须已完成凭证验证并显式声明
+   * credential.verified = true，否则抛 CredentialInvalidError。
    */
-  async authenticateChannel(input: ChannelAuthInput): Promise<ChannelAuthResult> {
+  async authenticateChannel(
+    input: ChannelAuthInput,
+    requestContext?: RequestContext
+  ): Promise<ChannelAuthResult> {
+    // 0. 非密码凭证契约校验（库不代为验证 smsCode / oauthCode 等）
+    if (input.credential.type !== "password" && input.credential.verified !== true) {
+      throw new CredentialInvalidError(
+        "非密码凭证必须由调用方预先验证：credential.verified 必须为 true"
+      );
+    }
+
     // 1. 检查渠道是否已存在
     const existingChannel = await this._socialService.findByProvider(
       input.provider,
@@ -378,21 +554,22 @@ export class OmniAuth {
       if (input.credential.type === "password") {
         // 通过合成邮箱找回用户并登录
         const syntheticEmail = this._buildChannelEmail(input.provider, input.providerOpenid);
-        result = await this.signIn({ email: syntheticEmail, password: input.credential.value });
+        result = await this.signIn(
+          { email: syntheticEmail, password: input.credential.value },
+          requestContext
+        );
       } else {
-        // 非密码凭证：调用者已自行验证
-        const existingUserForSession = await this._readPublicUser(existingChannel.userId);
-        result = { userId: existingChannel.userId, user: existingUserForSession };
+        // 非密码凭证：入口契约已保证调用方完成验证
+        const existingUser = await this._readPublicUser(existingChannel.userId);
+        result = { userId: existingChannel.userId, user: existingUser };
       }
 
-      publishAuditEvent({ action: "signIn", userId: result.userId });
-
-      const existingUser = await this._readPublicUser(result.userId);
+      await this._publishAudit({ action: "signIn", userId: result.userId });
 
       return {
         userId: result.userId,
         isNewUser: false,
-        user: existingUser,
+        user: result.user,
         channel: {
           id: existingChannel.id,
           provider: existingChannel.provider,
@@ -411,15 +588,17 @@ export class OmniAuth {
       : generateRandomPassword();
     const name = input.profile?.name ?? input.providerOpenid;
 
-    const signUpResult = await this.signUp({
-      email: syntheticEmail,
-      password,
-      name,
-      channel: { provider: input.provider, identifier: input.providerOpenid },
-    });
+    const signUpResult = await this.signUp(
+      {
+        email: syntheticEmail,
+        password,
+        name,
+        channel: { provider: input.provider, identifier: input.providerOpenid },
+      },
+      requestContext
+    );
 
-    // 3. 更新渠道字段（signUp 已创建基础 SocialAccount，此处追加 valid / extra data）
-    //    注意：signUp 内部已调用 bindToUser，不可再调 bindToUser（会抛 SocialAccountConflictError）
+    // 3. 更新渠道字段（signUp 已在事务内创建基础 SocialAccount，此处追加 valid / extra data）
     const channelUpdate = {
       accessToken: input.channelData?.accessToken,
       refreshToken: input.channelData?.refreshToken,
@@ -435,78 +614,32 @@ export class OmniAuth {
       allowVerification: input.channelData?.allowVerification ?? 0,
     };
 
-    const updatedRecord = (await this.config.database.updateOne({
-      model: "socialAccount",
+    const updatedRecord = await this.db.socialAccount.updateOne({
       where: [
         { field: "provider", value: input.provider },
         { field: "providerOpenid", value: input.providerOpenid },
       ],
       update: channelUpdate,
-    })) as Record<string, unknown>;
+    });
 
-    publishAuditEvent({ action: "signUp", userId: signUpResult.userId });
+    if (!updatedRecord) {
+      throw new SocialAccountConflictError(input.provider, input.providerOpenid);
+    }
 
-    const newUser = await this._readPublicUser(signUpResult.userId);
+    await this._publishAudit({ action: "signUp", userId: signUpResult.userId });
 
     return {
       userId: signUpResult.userId,
       isNewUser: true,
-      user: newUser,
+      user: signUpResult.user,
       channel: {
-        id: updatedRecord.id as string,
+        id: updatedRecord.id,
         provider: input.provider,
         providerOpenid: input.providerOpenid,
-        valid: (updatedRecord.valid as number) ?? 1,
-        allowPasswordUpdate: (updatedRecord.allowPasswordUpdate as number) ?? 0,
-        allowVerification: (updatedRecord.allowVerification as number) ?? 0,
+        valid: updatedRecord.valid ?? 1,
+        allowPasswordUpdate: updatedRecord.allowPasswordUpdate ?? 0,
+        allowVerification: updatedRecord.allowVerification ?? 0,
       },
-    };
-  }
-
-  // ----------------------------------------------------------
-  // 内部辅助
-  // ----------------------------------------------------------
-
-  /** 为指定渠道构建合成邮箱 */
-  private _buildChannelEmail(provider: string, providerOpenid: string): string {
-    if (provider === "phone") {
-      return phoneToSyntheticEmail(providerOpenid);
-    }
-    if (provider === "email") {
-      return providerOpenid;
-    }
-    // OAuth 等其他渠道：生成占位邮箱
-    return `${provider}_${providerOpenid.substring(0, 12)}@oauth.usercenter`;
-  }
-
-  /** 从数据库读取完整用户信息并转为 PublicUser */
-  private async _readPublicUser(userId: string): Promise<PublicUser> {
-    const record = await this.config.database.findOne({
-      model: "user",
-      where: [{ field: "id", value: userId }],
-    }) as Record<string, unknown> | null;
-
-    if (!record) {
-      // 兜底：用 ID 构造最小化对象
-      return {
-        id: userId,
-        name: "",
-        email: "",
-        emailVerified: false,
-        image: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-    }
-
-    return {
-      id: record.id as string,
-      name: (record.name as string) ?? "",
-      email: (record.email as string) ?? "",
-      emailVerified: (record.emailVerified as boolean) ?? false,
-      image: (record.image as string) ?? null,
-      createdAt: record.createdAt as Date,
-      updatedAt: record.updatedAt as Date,
     };
   }
 
@@ -516,59 +649,71 @@ export class OmniAuth {
 
   /**
    * 注册新用户并同时绑定社交账户。
-   * 原子操作：注册 + 社交绑定要么全部成功，要么全部失败。
+   * 原子操作：注册 + 社交绑定在同一事务中，要么全部成功，要么全部回滚。
+   *
+   * @throws SocialAccountConflictError 社交账号已被绑定
    */
-  async signUpWithSocial(input: SignUpWithSocialInput): Promise<SignUpResult> {
+  async signUpWithSocial(
+    input: SignUpWithSocialInput,
+    requestContext?: RequestContext
+  ): Promise<SignUpResult> {
     // 1. 密码校验
     if (input.password.length < 6) {
       throw new Error("密码长度不能少于 6 位");
     }
 
-    // 2. 防重复：检查社交账户是否已被绑定
+    // 2. 防重复：检查社交账户是否已被绑定（唯一约束在事务内兜底）
     const existingSocial = await this._socialService.findByProvider(
       input.social.provider,
       input.social.providerOpenid
     );
     if (existingSocial) {
-      throw new Error("该社交账号已被其他用户绑定");
-    }
-
-    // 3. 注册用户
-    let result: SignUpResult;
-    try {
-      result = await this.signUp({
-        email: input.email,
-        password: input.password,
-        name: input.name,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`社交注册失败: ${message}`);
-    }
-
-    // 4. 绑定社交账户
-    try {
-      await this._socialService.bindToUser(result.userId, {
-        provider: input.social.provider,
-        providerOpenid: input.social.providerOpenid,
-        accessToken: input.social.accessToken,
-        refreshToken: input.social.refreshToken,
-        tokenExpiresAt: input.social.tokenExpiresAt,
-        profileData: input.social.profileData,
-      });
-    } catch (err: unknown) {
-      // 绑定失败时记录日志（用户已创建，社交账户绑定失败不影响主流程）
-      // 使用者可以通过再次调用 social.bindToUser 重试
-      console.error(
-        `[signUpWithSocial] 社交账户绑定失败 (userId=${result.userId}):`,
-        err
-      );
-      throw new Error(
-        `社交账户绑定失败: ${err instanceof Error ? err.message : String(err)}`
+      throw new SocialAccountConflictError(
+        input.social.provider,
+        input.social.providerOpenid
       );
     }
 
-    return result;
+    // 3. 哈希密码（事务外执行）
+    const hashedPassword = await hashPassword(input.password);
+
+    // 4. 事务：注册 + 社交绑定原子提交
+    let userId: string;
+    try {
+      userId = await this._withTransaction(async (tx) => {
+        const newUserId = await this._createUserWithChannel(
+          { email: input.email, password: "", name: input.name },
+          hashedPassword,
+          tx
+        );
+        await createSocialService(tx).bindToUser(newUserId, {
+          provider: input.social.provider,
+          providerOpenid: input.social.providerOpenid,
+          accessToken: input.social.accessToken,
+          refreshToken: input.social.refreshToken,
+          tokenExpiresAt: input.social.tokenExpiresAt,
+          profileData: input.social.profileData,
+        });
+        return newUserId;
+      });
+    } catch (err) {
+      if (err instanceof UniqueViolationError) {
+        throw new SocialAccountConflictError(
+          input.social.provider,
+          input.social.providerOpenid
+        );
+      }
+      throw err;
+    }
+
+    // 5. 事务提交后触发钩子
+    await this._fireUserCreatedHooks({ id: userId, email: input.email, name: input.name });
+
+    await this._publishAudit({ action: "signUp", userId });
+
+    // 6. 读取完整用户信息并返回
+    const user = await this._readPublicUser(userId);
+    return { userId, user };
   }
 
   // ----------------------------------------------------------
@@ -578,20 +723,20 @@ export class OmniAuth {
   async requestPasswordReset(
     provider: string,
     providerOpenid: string,
+    requestContext?: RequestContext
   ): Promise<void> {
-    if (!this._passwordReset) {
-      throw new Error("密码重置不可用");
-    }
     // 速率限制：3 次/10 分钟
+    const ip = getClientIp(requestContext);
     await checkRateLimit(
-      this._passwordResetRateLimit,
-      `${provider}:${providerOpenid}`,
-      3,
-      10 * 60 * 1000,
+      this._rateLimiter,
+      `passwordReset:${ip}:${provider}:${providerOpenid}`,
+      this._passwordResetLimit.maxAttempts,
+      this._passwordResetLimit.windowMs
     );
     await this._passwordReset.requestReset(provider, providerOpenid);
-    publishAuditEvent({
+    await this._publishAudit({
       action: "resetPasswordRequest",
+      ip,
       metadata: { provider, providerOpenid },
     });
   }
@@ -600,13 +745,10 @@ export class OmniAuth {
     provider: string,
     providerOpenid: string,
     code: string,
-    newPassword: string,
+    newPassword: string
   ): Promise<void> {
-    if (!this._passwordReset) {
-      throw new Error("密码重置不可用");
-    }
     await this._passwordReset.reset(provider, providerOpenid, code, newPassword);
-    publishAuditEvent({ action: "resetPasswordDone" });
+    await this._publishAudit({ action: "resetPasswordDone" });
   }
 
   // ----------------------------------------------------------
@@ -637,29 +779,48 @@ export class OmniAuth {
   // OAuth
   // ----------------------------------------------------------
 
+  /** 注册 OAuth provider（实例级注册表） */
   registerOAuthProvider(config: OAuthProviderConfig): void {
-    registerOAuthProvider(config);
+    this._registry.oauthProviders.set(config.provider, config);
   }
 
+  /** 获取 OAuth handler（含 initiateOAuth） */
+  get oauth(): OAuthHandler {
+    return this._oauthHandler;
+  }
+
+  /**
+   * 处理 OAuth 回调。
+   *
+   * 推荐使用对象形式参数（库内强制校验 state）：
+   * ```ts
+   * auth.handleOAuthCallback(provider, code, redirectUri, {
+   *   state: body.state,            // 回调携带
+   *   expectedState: cookieValue,   // 发起授权时服务端保存
+   *   codeVerifier,
+   * });
+   * ```
+   *
+   * @deprecated 位置参数签名 (state?, codeVerifier?) 仍可用但不校验 state。
+   */
   async handleOAuthCallback(
     provider: string,
     code: string,
     redirectUri: string,
-    state?: string,
-    codeVerifier?: string,
+    stateOrOptions?: string | OAuthCallbackOptions,
+    codeVerifier?: string
   ): Promise<OAuthCallbackResult> {
-    const { handleOAuthCallback: handler } = await import("./oauth/handler");
-    const result = await handler(provider, code, redirectUri, state, codeVerifier);
+    const result = await this._oauthHandler(
+      provider,
+      code,
+      redirectUri,
+      stateOrOptions,
+      codeVerifier
+    );
 
-    // ---- OAuth 新用户创建后触发 onUserCreated 钩子（与 signUp 保持一致）
+    // ---- OAuth 新用户创建后触发 onUserCreated 钩子（事务已提交）
     if (result.isNewUser) {
-      for (const hook of this._afterUserCreateHooks) {
-        try {
-          await hook({ id: result.userId });
-        } catch (e) {
-          console.error("[OAuth] onUserCreated hook error:", e);
-        }
-      }
+      await this._fireUserCreatedHooks({ id: result.userId });
     }
 
     return result;
@@ -680,9 +841,6 @@ export class OmniAuth {
     providerOpenid: string,
     channelRef?: SocialAccountRef
   ): Promise<string> {
-    if (!this._channelVerification) {
-      throw new Error("渠道验证码不可用");
-    }
     return this._channelVerification.requestCode(provider, providerOpenid, channelRef);
   }
 
@@ -699,29 +857,29 @@ export class OmniAuth {
     code: string,
     channelRef?: SocialAccountRef
   ): Promise<boolean> {
-    if (!this._channelVerification) {
-      throw new Error("渠道验证码不可用");
-    }
     return this._channelVerification.verifyCode(provider, providerOpenid, code, channelRef);
   }
 
-  /**
-   * 注册指定 provider 的验证码发送器。
-   *
-   * 第三方在初始化后调用，为 email/phone/wechat 等渠道注册发码实现。
-   */
+  /** 注册指定 provider 的验证码发送器（实例级注册表） */
   registerVerificationSender(provider: string, sender: VerificationSender): void {
-    registerVerificationSender(provider, sender);
+    this._registry.senders.set(provider, sender);
   }
 
   /**
-   * 注册指定 provider 的验证码验证器。
-   *
-   * 第三方在初始化后调用，为 email/phone/wechat 等渠道注册验证实现。
+   * 注册指定 provider 的验证码验证器（实例级注册表）。
    * 验证码的状态管理与验证逻辑完全由实现方负责。
    */
   registerVerificationVerifier(provider: string, verifier: VerificationVerifier): void {
-    registerVerificationVerifier(provider, verifier);
+    this._registry.verifiers.set(provider, verifier);
+  }
+
+  // ----------------------------------------------------------
+  // 审计
+  // ----------------------------------------------------------
+
+  /** 设置实例级审计处理器 */
+  setAuditHandler(handler: AuditHandler): void {
+    this._registry.auditHandler = handler;
   }
 
   // ----------------------------------------------------------
@@ -733,26 +891,29 @@ export class OmniAuth {
   }
 
   // ----------------------------------------------------------
+  // Token 刷新
+  // ----------------------------------------------------------
+
+  /** 注册指定 provider 的 token 刷新器（实例级注册表） */
+  registerTokenRefresher(provider: string, refresher: TokenRefresher): void {
+    this._registry.tokenRefreshers.set(provider, refresher);
+  }
+
+  // ----------------------------------------------------------
   // 数据库直通（增删改查）
   // ----------------------------------------------------------
 
   /**
-   * 数据库直通门面：
-   * - 类型化表视图（推荐）：db.user.* / db.account.* / db.socialAccount.* / db.businessAccount.*
+   * 数据库直通门面（惰性缓存）：
+   * - 类型化表视图（推荐）：db.user.* / db.account.* / db.socialAccount.*
    * - 泛型方法（已弃用）：db.findOne({ model, ... }) 等
    */
   get db(): DbFacade {
-    return createDbFacade(this.config.database);
+    if (!this._dbFacade) {
+      this._dbFacade = createDbFacade(this.config.database);
+    }
+    return this._dbFacade;
   }
-
-  // ----------------------------------------------------------
-  // Token 刷新
-  // ----------------------------------------------------------
-
-  registerTokenRefresher(provider: string, refresher: TokenRefresher): void {
-    registerTokenRefresher(provider, refresher);
-  }
-
 }
 
 // ----------------------------------------------------------

@@ -4,7 +4,7 @@
 // user 表以 email 为唯一锚点，非邮箱渠道用户通过合成邮箱
 // 接入。合成邮箱格式:
 //   手机:  phone+{phone}@{domain}
-//   OAuth: {provider}_{openid前12位}@oauth.usercenter
+//   OAuth: {provider}_{openid}@oauth.usercenter（完整 openid，不截断）
 //
 // valid 字段（SocialAccount 表）标识渠道是否为真实登记:
 //   0 = 系统占位（OAuth 自动生成等），忽略邮箱验证
@@ -36,6 +36,19 @@ export function isSyntheticEmail(email: string): boolean {
 /** 合成邮箱 -> 手机号 */
 export function syntheticEmailToPhone(email: string): string {
   return email.replace(SYNTHETIC_PREFIX, "").replace(SYNTHETIC_EMAIL_DOMAIN, "");
+}
+
+/** 占位邮箱域名（OAuth 等无邮箱渠道） */
+export const PLACEHOLDER_EMAIL_DOMAIN = "oauth.usercenter";
+
+/**
+ * 为无邮箱渠道构建占位邮箱（单一实现，供 auth / OAuth handler 共用）。
+ *
+ * 使用完整 openid，不做截断——截断会导致不同 openid 生成相同
+ * 占位邮箱，触发 user.email 唯一约束冲突。
+ */
+export function buildPlaceholderEmail(provider: string, openid: string): string {
+  return `${provider}_${openid}@${PLACEHOLDER_EMAIL_DOMAIN}`;
 }
 
 // ----------------------------------------------------------

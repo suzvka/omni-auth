@@ -96,7 +96,45 @@ export interface DatabaseAdapter {
     update: Record<string, unknown>;
   }): Promise<unknown>;
 
+  /**
+   * 事务执行（可选）。
+   *
+   * fn 收到的 tx 适配器与原适配器语义一致，但所有操作处于同一事务：
+   * fn 正常返回则提交，抛错则回滚。多表写入（注册 = user + account +
+   * socialAccount）应包入事务以保证原子性。
+   *
+   * 未实现时 {@link withTransaction} 回退为顺序写入并警告。
+   */
+  transaction?<T>(fn: (tx: DatabaseAdapter) => Promise<T>): Promise<T>;
+
   /** 数据库初始化 / 健康检查（可选） */
   init?(): Promise<void>;
   disconnect?(): Promise<void>;
+}
+
+// ----------------------------------------------------------
+// 事务辅助
+// ----------------------------------------------------------
+
+let txFallbackWarned = false;
+
+/**
+ * 在事务中执行多表操作；适配器未实现 transaction 时回退为顺序写入。
+ *
+ * 回退路径下多表写入不具原子性，仅在首次回退时警告一次。
+ */
+export async function withTransaction<T>(
+  adapter: DatabaseAdapter,
+  fn: (tx: DatabaseAdapter) => Promise<T>
+): Promise<T> {
+  if (typeof adapter.transaction === "function") {
+    return adapter.transaction(fn);
+  }
+  if (!txFallbackWarned) {
+    txFallbackWarned = true;
+    console.warn(
+      "[omni-auth] 数据库适配器未实现 transaction，多表写入回退为顺序执行（不具原子性）。建议实现 DatabaseAdapter.transaction。"
+    );
+  }
+  return fn(adapter);
 }

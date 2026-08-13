@@ -8,6 +8,13 @@ vi.mock("next/headers", () => ({
 import { createAuth, type OmniAuthConfig } from "./auth";
 import type { DatabaseAdapter, WhereCondition } from "./adapters/database";
 import { verifyPassword } from "@better-auth/utils/password";
+import { createRequestContext } from "./adapters/request";
+import {
+    CredentialInvalidError,
+    InvalidPasswordError,
+    RateLimitedError,
+    UserExistsError,
+} from "./errors";
 
 // ----------------------------------------------------------
 // 完整内存数据库
@@ -146,6 +153,19 @@ function createInMemoryDb(): DatabaseAdapter & {
             const record = { ...data, id };
             table.set(id, record);
             return record;
+        },
+        async transaction(fn) {
+            // 快照式事务：fn 抛错时恢复快照（回滚）
+            const snapshot = new Map(
+                [...store].map(([m, t]) => [m, new Map(t)] as [string, Map<string, Record<string, unknown>>])
+            );
+            try {
+                return await fn(db);
+            } catch (err) {
+                store.clear();
+                for (const [m, t] of snapshot) store.set(m, t);
+                throw err;
+            }
         },
     };
 
@@ -293,22 +313,19 @@ describe("OmniAuth 凭证校验", () => {
         expect(hookPayload!.name).toBe("Hook");
     });
 
-    it("signUp 自动创建 BusinessAccount（无需 hooks）", async () => {
+    it("signUp 不再写入 businessAccount 业务表（3.0.0 迁出 SDK，由 hooks 处理）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
-        const result = await auth.signUp({
+        await auth.signUp({
             email: "biz@test.local",
             password: "password123",
             name: "Biz",
         });
 
-        // BusinessAccount 已自动创建（不依赖 hooks）
+        // SDK 不再创建 app 业务表记录
         const bizAccounts = memDb.dump("businessAccount");
-        expect(bizAccounts.length).toBe(1);
-        expect(bizAccounts[0].authUserId).toBe(result.userId);
-        expect(bizAccounts[0].displayName).toBe("Biz");
-        expect(bizAccounts[0].status).toBe("active");
+        expect(bizAccounts.length).toBe(0);
     });
 
     it("密码使用 hashPassword/verifyPassword（非明文存储）", async () => {
@@ -335,5 +352,272 @@ describe("OmniAuth 凭证校验", () => {
         // 确认错误密码校验失败
         const isInvalid = await verifyPassword(storedHash, "wrong");
         expect(isInvalid).toBe(false);
+    });
+});
+
+// ----------------------------------------------------------
+// 类型化错误（2.1.0）
+// ----------------------------------------------------------
+
+describe("OmniAuth 类型化错误", () => {
+    it("signUp 重复邮箱抛 UserExistsError", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        await auth.signUp({ email: "t1@err.local", password: "password123", name: "T" });
+
+        await expect(
+            auth.signUp({ email: "t1@err.local", password: "password456", name: "T2" })
+        ).rejects.toThrow(UserExistsError);
+    });
+
+    it("signIn 密码错误抛 InvalidPasswordError（消息防枚举）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+        await auth.signUp({ email: "t2@err.local", password: "password123", name: "T" });
+
+        await expect(
+            auth.signIn({ email: "t2@err.local", password: "wrong" })
+        ).rejects.toThrow(InvalidPasswordError);
+    });
+});
+
+// ----------------------------------------------------------
+// 限流键（2.1.0：signUp 按客户端 IP 限流）
+// ----------------------------------------------------------
+
+describe("限流键", () => {
+    it("signUp 按客户端 IP 限流：同 IP 第 4 次拒绝，不同 IP 不受影响", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        const ctxA = createRequestContext({ "x-forwarded-for": "1.1.1.1" });
+        for (let i = 0; i < 3; i++) {
+            await auth.signUp(
+                { email: `rl${i}@test.local`, password: "password123", name: "RL" },
+                ctxA,
+            );
+        }
+
+        await expect(
+            auth.signUp(
+                { email: "rl3@test.local", password: "password123", name: "RL" },
+                ctxA,
+            )
+        ).rejects.toThrow(RateLimitedError);
+
+        // 不同 IP 不受影响
+        const ctxB = createRequestContext({ "x-forwarded-for": "2.2.2.2" });
+        await expect(
+            auth.signUp(
+                { email: "rl3@test.local", password: "password123", name: "RL" },
+                ctxB,
+            )
+        ).resolves.toBeTruthy();
+    });
+
+    it("可注入自定义限流器（config.rateLimit.limiter）", async () => {
+        const memDb = createInMemoryDb();
+        const check = vi.fn().mockResolvedValue({ allowed: true, remaining: 0, resetAt: 0 });
+        const auth = createTestAuth(memDb, {
+            rateLimit: { limiter: { check, reset: async () => {} } },
+        });
+
+        await auth.signUp({ email: "custom@rl.local", password: "password123", name: "C" });
+        expect(check).toHaveBeenCalled();
+    });
+});
+
+// ----------------------------------------------------------
+// authenticateChannel 非密码凭证契约（2.1.0）
+// ----------------------------------------------------------
+
+describe("authenticateChannel 非密码凭证契约", () => {
+    it("非密码凭证且 verified !== true 时抛 CredentialInvalidError", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        await expect(
+            auth.authenticateChannel({
+                provider: "phone",
+                providerOpenid: "13800000000",
+                credential: { type: "smsCode", value: "123456" },
+            })
+        ).rejects.toThrow(CredentialInvalidError);
+    });
+
+    it("verified = true 时允许注册（调用方已完成验证）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        const result = await auth.authenticateChannel({
+            provider: "phone",
+            providerOpenid: "13800000001",
+            credential: { type: "smsCode", value: "123456", verified: true },
+            profile: { name: "手机用户" },
+        });
+
+        expect(result.isNewUser).toBe(true);
+        expect(result.user.name).toBe("手机用户");
+        expect(result.channel.provider).toBe("phone");
+    });
+});
+
+// ----------------------------------------------------------
+// 事务（3.0.0）
+// ----------------------------------------------------------
+
+/** 带事务的专用测试 DB：第 2 次 socialAccount 写入时模拟失败 */
+function createTxFailureDb() {
+    const store = new Map<string, Record<string, unknown>[]>();
+    const state = { socialCreates: 0 };
+
+    function table(model: string) {
+        if (!store.has(model)) store.set(model, []);
+        return store.get(model)!;
+    }
+    const match = (r: Record<string, unknown>, where: WhereCondition[]) =>
+        where.every((w) => r[w.field] === w.value);
+
+    const adapter: DatabaseAdapter = {
+        async create({ model, data }) {
+            if (model === "socialAccount") {
+                state.socialCreates++;
+                if (state.socialCreates >= 2) {
+                    throw new Error("simulated social bind failure");
+                }
+            }
+            const rec = { ...data, id: (data.id as string) ?? String(Math.random()) };
+            table(model).push(rec);
+            return rec;
+        },
+        async findOne({ model, where }) {
+            return table(model).find((r) => match(r, where)) ?? null;
+        },
+        async findMany({ model, where }) {
+            return table(model).filter((r) => !where || match(r, where));
+        },
+        async count({ model, where }) {
+            return table(model).filter((r) => !where || match(r, where)).length;
+        },
+        async updateOne({ model, where, update }) {
+            const r = table(model).find((rec) => match(rec, where));
+            if (r) Object.assign(r, update);
+            return r ?? null;
+        },
+        async updateMany() {
+            return 0;
+        },
+        async deleteOne({ model, where }) {
+            const t = table(model);
+            const i = t.findIndex((r) => match(r, where));
+            if (i === -1) return null;
+            return t.splice(i, 1)[0];
+        },
+        async deleteMany() {
+            return 0;
+        },
+        async transaction(fn) {
+            // 快照式事务：失败时恢复快照
+            const snapshot = new Map(
+                [...store].map(([m, rows]) => [m, [...rows]] as [string, Record<string, unknown>[]])
+            );
+            try {
+                return await fn(adapter);
+            } catch (err) {
+                store.clear();
+                for (const [m, rows] of snapshot) store.set(m, rows);
+                throw err;
+            }
+        },
+    };
+
+    return { adapter, dump: (m: string) => table(m), state };
+}
+
+describe("事务原子性（3.0.0）", () => {
+    it("signUpWithSocial 社交绑定失败时整体回滚（user/account 不留存）", async () => {
+        const { adapter, dump } = createTxFailureDb();
+        const auth = createAuth({
+            database: adapter,
+            baseUrl: "http://localhost:3000",
+        });
+
+        await expect(
+            auth.signUpWithSocial({
+                email: "tx@test.local",
+                password: "password123",
+                name: "Tx",
+                social: { provider: "wechat", providerOpenid: "oid_tx" },
+            })
+        ).rejects.toThrow("simulated social bind failure");
+
+        // 事务回滚：三张表均无残留
+        expect(dump("user").length).toBe(0);
+        expect(dump("account").length).toBe(0);
+        expect(dump("socialAccount").length).toBe(0);
+    });
+
+    it("适配器未实现 transaction 时回退顺序写入（功能可用）", async () => {
+        const memDb = createInMemoryDb();
+        const { transaction: _unused, ...rest } = memDb as DatabaseAdapter & {
+            transaction: unknown;
+            dump: unknown;
+        };
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const auth = createAuth({
+            database: rest as DatabaseAdapter,
+            baseUrl: "http://localhost:3000",
+        });
+
+        const result = await auth.signUp({
+            email: "notx@test.local",
+            password: "password123",
+            name: "NoTx",
+        });
+
+        expect(result.userId).toBeTruthy();
+        expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining("未实现 transaction"),
+        );
+        warnSpy.mockRestore();
+    });
+});
+
+// ----------------------------------------------------------
+// 实例隔离（3.0.0：注册表为实例级）
+// ----------------------------------------------------------
+
+describe("实例隔离（3.0.0）", () => {
+    it("两个实例的 OAuth provider 注册表互不干扰", async () => {
+        const memDb = createInMemoryDb();
+        const authA = createTestAuth(memDb);
+        const authB = createTestAuth(memDb);
+
+        authA.registerOAuthProvider({
+            provider: "wechat",
+            exchangeCode: async () => ({ openid: "oid_iso", accessToken: "at" }),
+        });
+
+        // authB 未注册 wechat → 拒绝
+        await expect(
+            authB.handleOAuthCallback("wechat", "code", "http://localhost/cb")
+        ).rejects.toThrow("未注册的 OAuth 平台");
+    });
+
+    it("两个实例的验证码 verifier 注册表互不干扰", async () => {
+        const memDb = createInMemoryDb();
+        const authA = createTestAuth(memDb);
+        const authB = createTestAuth(memDb);
+
+        authA.registerVerificationVerifier("email", {
+            verify: async () => true,
+        });
+
+        expect(await authA.verifyChannelCode("email", "a@b.c", "123456")).toBe(true);
+        await expect(
+            authB.verifyChannelCode("email", "a@b.c", "123456")
+        ).rejects.toThrow("未注册验证码验证器");
     });
 });

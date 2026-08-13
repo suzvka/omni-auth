@@ -18,6 +18,7 @@ import {
   timestamptz,
   defineSchema,
   type InferSelect,
+  type InferInsert,
 } from "./schema-builder";
 
 // ----------------------------------------------------------
@@ -97,3 +98,8 @@ export const schema = defineSchema({
 export type UserRow = InferSelect<typeof user>;
 export type AccountRow = InferSelect<typeof account>;
 export type SocialAccountRow = InferSelect<typeof socialAccount>;
+
+// INSERT 输入类型（NOT NULL 无默认值列必填）
+export type UserInsert = InferInsert<typeof user>;
+export type AccountInsert = InferInsert<typeof account>;
+export type SocialAccountInsert = InferInsert<typeof socialAccount>;

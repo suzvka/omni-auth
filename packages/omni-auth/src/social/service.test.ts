@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createSocialService } from "./service";
-import { clearTokenRefreshers, registerTokenRefresher } from "./token";
+import type { TokenRefresher } from "./token";
 import { SocialAccountConflictError } from "../errors";
 import type { DatabaseAdapter } from "../adapters/database";
-import type { SocialAccountDTO } from "./types";
 
 // ============================================================
 // In-memory mock DatabaseAdapter
@@ -132,7 +131,6 @@ describe("createSocialService", () => {
   let service: ReturnType<typeof createSocialService>;
 
   beforeEach(() => {
-    clearTokenRefreshers();
     db = createInMemoryDb();
     service = createSocialService(db);
   });
@@ -316,12 +314,23 @@ describe("createSocialService", () => {
     });
   });
 
-  // ---- Token 自动刷新 ----
+  // ---- Token 自动刷新（3.0.0：refresher 经依赖注入，不再走全局注册表） ----
 
   describe("listByUser 自动 Token 刷新", () => {
+    const refreshers = new Map<string, TokenRefresher>();
+    // 与 beforeEach 的 service 共享同一 db，但注入 refresher 查询
+    const serviceWithRefresh = () =>
+      createSocialService(db, {
+        getTokenRefresher: (provider) => refreshers.get(provider),
+      });
+
+    beforeEach(() => {
+      refreshers.clear();
+    });
+
     it("未过期 token 不触发刷新", async () => {
       const future = new Date(Date.now() + 3600000); // 1 小时后过期
-      const created = await service.bindToUser("user_1", {
+      await service.bindToUser("user_1", {
         provider: "wechat",
         providerOpenid: "oid_fresh",
         accessToken: "old_token",
@@ -329,19 +338,19 @@ describe("createSocialService", () => {
       });
 
       let refreshCalled = false;
-      registerTokenRefresher("wechat", async () => {
+      refreshers.set("wechat", async () => {
         refreshCalled = true;
         return { accessToken: "new_token" };
       });
 
-      const list = await service.listByUser("user_1");
+      const list = await serviceWithRefresh().listByUser("user_1");
       expect(refreshCalled).toBe(false);
       expect(list[0].accessToken).toBe("old_token");
     });
 
     it("已过期 token 应触发自动刷新", async () => {
       const past = new Date(Date.now() - 3600000); // 1 小时前已过期
-      const created = await service.bindToUser("user_1", {
+      await service.bindToUser("user_1", {
         provider: "wechat",
         providerOpenid: "oid_expired",
         accessToken: "old_token",
@@ -349,13 +358,13 @@ describe("createSocialService", () => {
         tokenExpiresAt: past,
       });
 
-      registerTokenRefresher("wechat", async (account) => ({
+      refreshers.set("wechat", async (account) => ({
         accessToken: "new_token_for_" + account.id,
         refreshToken: "new_refresh",
         expiresAt: new Date("2026-12-31"),
       }));
 
-      const list = await service.listByUser("user_1");
+      const list = await serviceWithRefresh().listByUser("user_1");
       expect(list[0].accessToken).toContain("new_token_for_");
       expect(list[0].refreshToken).toBe("new_refresh");
     });
@@ -370,7 +379,7 @@ describe("createSocialService", () => {
       });
 
       // 未注册 github refresher
-      const list = await service.listByUser("user_1");
+      const list = await serviceWithRefresh().listByUser("user_1");
       expect(list[0].accessToken).toBe("old_gh_token");
     });
   });

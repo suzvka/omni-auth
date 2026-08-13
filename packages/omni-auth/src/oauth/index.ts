@@ -4,13 +4,13 @@
 
 export type { OAuthProviderConfig, OAuthCallbackResult } from "./types";
 export { registerOAuthProvider, getOAuthProvider } from "./registry";
-export {
-    handleOAuthCallback,
-    createOAuthHandler,
-    initiateOAuth,
-    setOAuthHandler,
+export { createOAuthHandler } from "./handler";
+export type {
+    OAuthHandler,
+    OAuthInitiateResult,
+    OAuthCallbackOptions,
+    SocialServiceForOAuth,
 } from "./handler";
-export type { OAuthHandler, OAuthInitiateResult } from "./handler";
 
 // 内置 Provider 工厂
 export { createGoogleProvider } from "./providers/google";

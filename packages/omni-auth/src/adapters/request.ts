@@ -57,3 +57,21 @@ export function createRequestContext(
     },
   };
 }
+
+/**
+ * 从 RequestContext 提取客户端 IP（限流键 / 审计用）。
+ *
+ * 优先级：x-forwarded-for 首段 → x-real-ip → "anonymous"。
+ * ctx 缺省或无相关 header 时返回 "anonymous"。
+ */
+export function getClientIp(ctx?: RequestContext | null): string {
+  if (!ctx) return "anonymous";
+  const forwarded = ctx.getHeader("x-forwarded-for");
+  if (forwarded) {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = ctx.getHeader("x-real-ip");
+  if (realIp) return realIp.trim();
+  return "anonymous";
+}

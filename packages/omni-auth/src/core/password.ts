@@ -7,35 +7,32 @@
 
 import { hashPassword } from "@better-auth/utils/password";
 import type { DatabaseAdapter } from "../adapters/database";
-import { requestCode, verifyCode } from "./verification-channel";
+import { createDbFacade } from "../models";
 
 // ---- 依赖 ----
+
+/** 渠道验证码编排器（实例级，createChannelVerification 产物） */
+export interface ChannelVerificationLike {
+    requestCode(provider: string, providerOpenid: string): Promise<string>;
+    verifyCode(
+        provider: string,
+        providerOpenid: string,
+        code: string
+    ): Promise<boolean>;
+}
 
 export interface PasswordResetDeps {
     /** 数据库适配器（必填） */
     db: DatabaseAdapter;
-}
-
-// ---- 凭证账户类型 ----
-
-interface CredentialAccount {
-    id: string;
-    userId: string;
-    providerId: string;
-    password: string;
-}
-
-interface SocialAccountRow {
-    id: string;
-    userId: string;
-    provider: string;
-    providerOpenid: string;
+    /** 渠道验证码编排器（实例级，必填） */
+    channelVerification: ChannelVerificationLike;
 }
 
 // ---- 工厂 ----
 
 export function createPasswordReset(deps: PasswordResetDeps) {
-    const { db } = deps;
+    const { db, channelVerification } = deps;
+    const dbf = createDbFacade(db);
 
     return {
         /**
@@ -43,13 +40,13 @@ export function createPasswordReset(deps: PasswordResetDeps) {
          *
          * 生成种子码；若已注册 sender 则投递到 providerOpenid，
          * 未注册则调用方自行投递。
-         * 调用方需提前通过 registerVerificationSender() 注册对应渠道的投递器。
+         * 调用方需提前通过 auth.registerVerificationSender() 注册对应渠道的投递器。
          */
         async requestReset(
             provider: string,
             providerOpenid: string
         ): Promise<void> {
-            await requestCode(provider, providerOpenid);
+            await channelVerification.requestCode(provider, providerOpenid);
         },
 
         /**
@@ -72,19 +69,18 @@ export function createPasswordReset(deps: PasswordResetDeps) {
             newPassword: string
         ): Promise<string> {
             // 1. 委托渠道验证验证码（结果由渠道实现方决定）
-            const ok = await verifyCode(provider, providerOpenid, code);
+            const ok = await channelVerification.verifyCode(provider, providerOpenid, code);
             if (!ok) {
                 throw new Error("验证码错误或已过期");
             }
 
             // 2. 通过 socialAccount 表查找用户
-            const socialAccount = await db.findOne({
-                model: "socialAccount",
+            const socialAccount = await dbf.socialAccount.findOne({
                 where: [
                     { field: "provider", value: provider },
                     { field: "providerOpenid", value: providerOpenid },
                 ],
-            }) as SocialAccountRow | null;
+            });
 
             if (!socialAccount) {
                 throw new Error("未找到对应的用户账户");
@@ -93,22 +89,20 @@ export function createPasswordReset(deps: PasswordResetDeps) {
             const userId = socialAccount.userId;
 
             // 3. 查找 credential account（密码存放处）
-            const account = await db.findOne({
-                model: "account",
+            const account = await dbf.account.findOne({
                 where: [
                     { field: "userId", value: userId },
                     { field: "providerId", value: "credential" },
                 ],
-            }) as CredentialAccount | null;
+            });
 
-            if (!account) {
+            if (!account || !account.password) {
                 throw new Error("用户未设置密码");
             }
 
             // 4. 哈希新密码并更新
             const hashedPassword = await hashPassword(newPassword);
-            await db.updateOne({
-                model: "account",
+            await dbf.account.updateOne({
                 where: [{ field: "id", value: account.id }],
                 update: {
                     password: hashedPassword,
