@@ -1,5 +1,43 @@
 # Changelog
 
+## 4.1.0（未发布）
+
+> **安全加固与健壮性改进**。全部改动为新增式（新可选配置 /
+> 新错误类），默认行为与 4.0.0 兼容。
+
+### 新增
+
+- **`WeakPasswordError`**（code `WEAK_PASSWORD`）：signUp /
+  signUpWithSocial 密码长度不足不再抛裸 `Error`，纳入
+  OmniAuthError 体系。
+- **`OmniAuthConfig.passwordPolicy`**：`{ minLength }`，默认 6
+  （与旧版行为一致），可 opt-in 更严格策略（如 8）。
+- **客户端 IP 解析可注入**：`OmniAuthRateLimitConfig.getClientIp`
+  自定义解析函数；`getClientIp(ctx, { trustedProxyDepth })` 支持
+  从 x-forwarded-for 右侧数 N 跳，可信代理部署下防请求头伪造
+  绕过限流。默认行为（取首段）不变。
+- **验证码验证尝试限流（opt-in）**：`rateLimit.verifyCode`
+  `{ maxAttempts, windowMs }`。配置后 verifyChannelCode 按
+  `provider:providerOpenid` 限制尝试次数（防短验证码爆破），
+  验证成功时重置计数。未配置时行为与旧版一致。
+- **signIn 成功后重置限流计数**（best-effort 调用
+  `RateLimiter.reset`，外部限流器异常不影响登录结果）。
+- `SignUpInput.channel` 新增可选扩展字段（accessToken /
+  refreshToken / tokenExpiresAt / profileData / valid /
+  allowPasswordUpdate / allowVerification）。
+- 新增 PgAdapter 真实数据库集成测试（设置
+  `OMNI_AUTH_TEST_PG_URL` 环境变量时运行，否则跳过）。
+
+### 改进
+
+- **authenticateChannel 新用户路径原子化**：渠道扩展数据随
+  signUp 同事务写入（user + account + socialAccount 一次提交），
+  移除原事务外的单独 updateOne，消除不一致窗口。
+- `_readPublicUser` 记录不存在时抛 `OmniAuthError`
+  （code `USER_NOT_FOUND`），不再伪造空用户对象掩盖数据不一致。
+- 移除 `createQuickAuth` 的 console.log 日志污染；
+  QuickAuthConfig 同步透传 `passwordPolicy`。
+
 ## 4.0.0（未发布）
 
 > **渠道模型清理**：接受"手机 / 邮箱 / 社交媒体一律作为渠道登记"的

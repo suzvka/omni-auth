@@ -14,6 +14,7 @@ import {
     InvalidPasswordError,
     RateLimitedError,
     UserExistsError,
+    WeakPasswordError,
 } from "./errors";
 
 // ----------------------------------------------------------
@@ -226,10 +227,13 @@ describe("OmniAuth 凭证校验", () => {
         expect(accounts[0].password).not.toBe("password123"); // 确认不是明文
     });
 
-    it("signUp 密码长度不足 6 位时拒绝", async () => {
+    it("signUp 密码长度不足 6 位时拒绝（WeakPasswordError）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
+        await expect(
+            auth.signUp({ email: "short@test.local", password: "123", name: "Short" })
+        ).rejects.toThrow(WeakPasswordError);
         await expect(
             auth.signUp({ email: "short@test.local", password: "123", name: "Short" })
         ).rejects.toThrow("密码长度不能少于 6 位");
@@ -467,8 +471,8 @@ describe("authenticateChannel 非密码凭证契约", () => {
 // 事务（3.0.0）
 // ----------------------------------------------------------
 
-/** 带事务的专用测试 DB：第 2 次 socialAccount 写入时模拟失败 */
-function createTxFailureDb() {
+/** 带事务的专用测试 DB：第 failFrom 次 socialAccount 写入时模拟失败 */
+function createTxFailureDb(failFrom = 2) {
     const store = new Map<string, Record<string, unknown>[]>();
     const state = { socialCreates: 0 };
 
@@ -483,7 +487,7 @@ function createTxFailureDb() {
         async create({ model, data }) {
             if (model === "socialAccount") {
                 state.socialCreates++;
-                if (state.socialCreates >= 2) {
+                if (state.socialCreates >= failFrom) {
                     throw new Error("simulated social bind failure");
                 }
             }
@@ -619,5 +623,210 @@ describe("实例隔离（3.0.0）", () => {
         await expect(
             authB.verifyChannelCode("email", "a@b.c", "123456")
         ).rejects.toThrow("未注册验证码验证器");
+    });
+});
+
+// ----------------------------------------------------------
+// 密码策略（4.1.0）
+// ----------------------------------------------------------
+
+describe("密码策略（4.1.0）", () => {
+    it("passwordPolicy.minLength 可收紧密码长度要求", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            passwordPolicy: { minLength: 8 },
+        });
+
+        await expect(
+            auth.signUp({ email: "p7@test.local", password: "1234567", name: "P" })
+        ).rejects.toThrow(WeakPasswordError);
+        await expect(
+            auth.signUp({ email: "p7@test.local", password: "1234567", name: "P" })
+        ).rejects.toThrow("密码长度不能少于 8 位");
+
+        // 8 位通过
+        await expect(
+            auth.signUp({ email: "p8@test.local", password: "12345678", name: "P" })
+        ).resolves.toBeTruthy();
+    });
+
+    it("signUpWithSocial 同样遵循密码策略", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            passwordPolicy: { minLength: 8 },
+        });
+
+        await expect(
+            auth.signUpWithSocial({
+                email: "ps@test.local",
+                password: "1234567",
+                name: "P",
+                social: { provider: "wechat", providerOpenid: "oid_ps" },
+            })
+        ).rejects.toThrow(WeakPasswordError);
+    });
+
+    it("不配置时默认仍为 6 位（行为兼容）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        await expect(
+            auth.signUp({ email: "p6@test.local", password: "123456", name: "P" })
+        ).resolves.toBeTruthy();
+    });
+});
+
+// ----------------------------------------------------------
+// 限流加固（4.1.0）
+// ----------------------------------------------------------
+
+describe("限流加固（4.1.0）", () => {
+    it("signIn 成功后重置限流计数", async () => {
+        const memDb = createInMemoryDb();
+        const reset = vi.fn().mockResolvedValue(undefined);
+        const auth = createTestAuth(memDb, {
+            rateLimit: {
+                limiter: {
+                    check: async () => ({ allowed: true, remaining: 5, resetAt: 0 }),
+                    reset,
+                },
+            },
+        });
+
+        await auth.signUp({ email: "reset@rl.local", password: "password123", name: "R" });
+        await auth.signIn({ email: "reset@rl.local", password: "password123" });
+
+        expect(reset).toHaveBeenCalledWith(expect.stringContaining("signIn:"));
+    });
+
+    it("signIn 失败时不重置限流计数", async () => {
+        const memDb = createInMemoryDb();
+        const reset = vi.fn().mockResolvedValue(undefined);
+        const auth = createTestAuth(memDb, {
+            rateLimit: {
+                limiter: {
+                    check: async () => ({ allowed: true, remaining: 5, resetAt: 0 }),
+                    reset,
+                },
+            },
+        });
+
+        await auth.signUp({ email: "fail@rl.local", password: "password123", name: "F" });
+        await expect(
+            auth.signIn({ email: "fail@rl.local", password: "wrong" })
+        ).rejects.toThrow(InvalidPasswordError);
+
+        expect(reset).not.toHaveBeenCalled();
+    });
+
+    it("verifyChannelCode 默认不限流（行为兼容）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+        auth.registerVerificationVerifier("email", { verify: async () => false });
+
+        // 未配置 verifyCode 限流：超过 3 次仍允许尝试
+        for (let i = 0; i < 5; i++) {
+            await expect(
+                auth.verifyChannelCode("email", "nolimit@x.c", "000000")
+            ).resolves.toBe(false);
+        }
+    });
+
+    it("配置 rateLimit.verifyCode 后限制验证尝试次数", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            rateLimit: { verifyCode: { maxAttempts: 2, windowMs: 60_000 } },
+        });
+        auth.registerVerificationVerifier("email", { verify: async () => false });
+
+        await expect(auth.verifyChannelCode("email", "v@x.c", "1")).resolves.toBe(false);
+        await expect(auth.verifyChannelCode("email", "v@x.c", "2")).resolves.toBe(false);
+        await expect(
+            auth.verifyChannelCode("email", "v@x.c", "3")
+        ).rejects.toThrow(RateLimitedError);
+    });
+
+    it("verifyChannelCode 验证成功时重置计数", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            rateLimit: { verifyCode: { maxAttempts: 2, windowMs: 60_000 } },
+        });
+        auth.registerVerificationVerifier("email", {
+            verify: async (_ch, code) => code === "888888",
+        });
+
+        // 失败 1 次 → 成功（重置）→ 再成功，不受 maxAttempts=2 限制
+        await expect(auth.verifyChannelCode("email", "ok@x.c", "1")).resolves.toBe(false);
+        await expect(auth.verifyChannelCode("email", "ok@x.c", "888888")).resolves.toBe(true);
+        await expect(auth.verifyChannelCode("email", "ok@x.c", "888888")).resolves.toBe(true);
+    });
+
+    it("可注入自定义 getClientIp（限流键使用自定义解析结果）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            rateLimit: { getClientIp: () => "9.9.9.9" },
+        });
+
+        // 请求头各不相同，但自定义解析器统一返回 9.9.9.9 → 同键限流
+        for (let i = 0; i < 3; i++) {
+            await auth.signUp(
+                { email: `ip${i}@inj.local`, password: "password123", name: "I" },
+                createRequestContext({ "x-forwarded-for": `10.0.0.${i}` }),
+            );
+        }
+        await expect(
+            auth.signUp(
+                { email: "ip3@inj.local", password: "password123", name: "I" },
+                createRequestContext({ "x-forwarded-for": "10.0.0.99" }),
+            )
+        ).rejects.toThrow(RateLimitedError);
+    });
+});
+
+// ----------------------------------------------------------
+// authenticateChannel 原子性（4.1.0）
+// ----------------------------------------------------------
+
+describe("authenticateChannel 渠道写入原子性（4.1.0）", () => {
+    it("channelData 随注册同事务写入（无事务外补丁）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        const result = await auth.authenticateChannel({
+            provider: "wechat",
+            providerOpenid: "oid_atom",
+            credential: { type: "oauthCode", value: "code", verified: true },
+            channelData: { accessToken: "at_1", valid: 1, profileData: { vip: true } },
+        });
+
+        expect(result.isNewUser).toBe(true);
+        expect(result.channel.valid).toBe(1);
+
+        const rows = memDb.dump("socialAccount");
+        expect(rows.length).toBe(1);
+        expect(rows[0].accessToken).toBe("at_1");
+        expect(rows[0].profileData).toEqual({ vip: true });
+    });
+
+    it("渠道写入失败时整体回滚（user/account 不留存）", async () => {
+        const { adapter, dump } = createTxFailureDb(1);
+        const auth = createAuth({
+            database: adapter,
+            baseUrl: "http://localhost:3000",
+        });
+
+        await expect(
+            auth.authenticateChannel({
+                provider: "wechat",
+                providerOpenid: "oid_fail",
+                credential: { type: "oauthCode", value: "code", verified: true },
+                channelData: { accessToken: "at_x" },
+            })
+        ).rejects.toThrow("simulated social bind failure");
+
+        // 事务回滚：三张表均无残留（旧版事务外 updateOne 会残留 user/account）
+        expect(dump("user").length).toBe(0);
+        expect(dump("account").length).toBe(0);
+        expect(dump("socialAccount").length).toBe(0);
     });
 });

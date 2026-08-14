@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createRequestContext } from "./request";
+import { createRequestContext, getClientIp } from "./request";
 import type { RequestContext } from "./request";
 
 describe("createRequestContext", () => {
@@ -71,5 +71,45 @@ describe("createRequestContext", () => {
     const headers = ctx.asHeaders();
     expect(headers["content-type"]).toBe("text/plain");
     expect(headers["authorization"]).toBe("Bearer token123");
+  });
+});
+
+// ----------------------------------------------------------
+// getClientIp（4.1.0：trustedProxyDepth 防头部伪造）
+// ----------------------------------------------------------
+
+describe("getClientIp", () => {
+  it("默认取 x-forwarded-for 首段（兼容旧行为）", () => {
+    const ctx = createRequestContext({ "x-forwarded-for": "1.1.1.1, 10.0.0.1" });
+    expect(getClientIp(ctx)).toBe("1.1.1.1");
+  });
+
+  it("无 x-forwarded-for 时回退 x-real-ip，再无则 anonymous", () => {
+    expect(getClientIp(createRequestContext({ "x-real-ip": "2.2.2.2" }))).toBe("2.2.2.2");
+    expect(getClientIp(createRequestContext({}))).toBe("anonymous");
+    expect(getClientIp(null)).toBe("anonymous");
+    expect(getClientIp(undefined)).toBe("anonymous");
+  });
+
+  it("trustedProxyDepth=1 时取右侧第 1 段（忽略左侧伪造内容）", () => {
+    const ctx = createRequestContext({ "x-forwarded-for": "6.6.6.6, 3.3.3.3" });
+    expect(getClientIp(ctx, { trustedProxyDepth: 1 })).toBe("3.3.3.3");
+  });
+
+  it("trustedProxyDepth=2 时取右侧第 2 段", () => {
+    const ctx = createRequestContext({
+      "x-forwarded-for": "spoofed, 1.1.1.1, 10.0.0.1",
+    });
+    expect(getClientIp(ctx, { trustedProxyDepth: 2 })).toBe("1.1.1.1");
+  });
+
+  it("跳数不足时退化为最左段（直连场景）", () => {
+    const ctx = createRequestContext({ "x-forwarded-for": "4.4.4.4" });
+    expect(getClientIp(ctx, { trustedProxyDepth: 3 })).toBe("4.4.4.4");
+  });
+
+  it("配置 depth 但无 x-forwarded-for 时仍回退 x-real-ip / anonymous", () => {
+    expect(getClientIp(createRequestContext({ "x-real-ip": "5.5.5.5" }), { trustedProxyDepth: 1 })).toBe("5.5.5.5");
+    expect(getClientIp(createRequestContext({}), { trustedProxyDepth: 1 })).toBe("anonymous");
   });
 });

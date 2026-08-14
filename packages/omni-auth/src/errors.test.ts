@@ -3,6 +3,7 @@ import {
   UnauthorizedError,
   InvalidPasswordError,
   SocialAccountConflictError,
+  WeakPasswordError,
 } from "./errors";
 
 describe("UnauthorizedError", () => {
@@ -52,5 +53,21 @@ describe("SocialAccountConflictError", () => {
     const err = new SocialAccountConflictError("google", "oid_123");
     expect(err).toBeInstanceOf(Error);
     expect(err).toBeInstanceOf(SocialAccountConflictError);
+  });
+});
+
+describe("WeakPasswordError", () => {
+  it("应包含机器可读 code WEAK_PASSWORD", () => {
+    const err = new WeakPasswordError("密码长度不能少于 8 位");
+    expect(err.code).toBe("WEAK_PASSWORD");
+    expect(err.message).toBe("密码长度不能少于 8 位");
+    expect(err.name).toBe("WeakPasswordError");
+  });
+
+  it("应包含默认消息且为 Error 子类", () => {
+    const err = new WeakPasswordError();
+    expect(err.message).toBe("密码不满足强度要求");
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(WeakPasswordError);
   });
 });

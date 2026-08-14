@@ -40,11 +40,13 @@ import {
   type RateLimiter,
 } from "./core/rateLimit";
 import {
+  OmniAuthError,
   InvalidPasswordError,
   UserExistsError,
   CredentialInvalidError,
   SocialAccountConflictError,
   UniqueViolationError,
+  WeakPasswordError,
 } from "./errors";
 import { createRegistry, type OmniRegistry } from "./registry";
 
@@ -56,12 +58,34 @@ import { createRegistry, type OmniRegistry } from "./registry";
 export interface OmniAuthRateLimitConfig {
   /** 速率限制器实例（不提供则使用进程内存实现，多实例部署请注入 Redis 等共享实现） */
   limiter?: RateLimiter;
-  /** 登录：默认 5 次 / 15 分钟（键 = ip:email） */
+  /**
+   * 客户端 IP 解析函数（4.1.0）。
+   *
+   * 默认使用 getClientIp（x-forwarded-for 首段 → x-real-ip）。
+   * 可信代理部署请注入自定义实现（如从右侧数 N 跳），
+   * 防止攻击者伪造请求头绕过基于 IP 的限流。
+   */
+  getClientIp?: (ctx?: RequestContext | null) => string;
+  /** 登录：默认 5 次 / 15 分钟（键 = ip:email，成功后重置计数） */
   signIn?: { maxAttempts: number; windowMs: number };
   /** 注册：默认 3 次 / 1 小时（键 = ip，防按邮箱锁死注册） */
   signUp?: { maxAttempts: number; windowMs: number };
   /** 密码重置：默认 3 次 / 10 分钟 */
   passwordReset?: { maxAttempts: number; windowMs: number };
+  /**
+   * 验证码验证尝试限流（4.1.0，默认关闭，opt-in）。
+   *
+   * 配置后 verifyChannelCode 按 `provider:providerOpenid` 限流，
+   * 防短验证码爆破；验证成功时重置计数。
+   * 建议：{ maxAttempts: 5, windowMs: 10 * 60 * 1000 }
+   */
+  verifyCode?: { maxAttempts: number; windowMs: number };
+}
+
+/** 密码策略 */
+export interface OmniAuthPasswordPolicy {
+  /** 密码最小长度（默认 8） */
+  minLength?: number;
 }
 
 export interface OmniAuthConfig {
@@ -82,6 +106,8 @@ export interface OmniAuthConfig {
   audit?: AuditHandler;
   /** 速率限制配置 */
   rateLimit?: OmniAuthRateLimitConfig;
+  /** 密码策略 */
+  passwordPolicy?: OmniAuthPasswordPolicy;
 }
 
 // ----------------------------------------------------------
@@ -95,10 +121,18 @@ export interface SignUpInput {
   /**
    * 通道记录（可选）。
    * 提供则直接写入 SocialAccount；未提供则自动从 email 推断。
+   * 扩展字段（4.1.0）与 user/account 同事务原子写入。
    */
   channel?: {
     provider: string;
     identifier: string;
+    accessToken?: string;
+    refreshToken?: string;
+    tokenExpiresAt?: Date | number;
+    profileData?: Record<string, unknown>;
+    valid?: number;
+    allowPasswordUpdate?: number;
+    allowVerification?: number;
   };
 }
 
@@ -214,9 +248,15 @@ export class OmniAuth {
   private _dbFacade: DbFacade | null = null;
   /** 速率限制器（默认内存实现，可经 config.rateLimit.limiter 注入） */
   private _rateLimiter: RateLimiter;
+  /** 客户端 IP 解析函数（默认 getClientIp，可经 config.rateLimit.getClientIp 注入） */
+  private _getClientIp: (ctx?: RequestContext | null) => string;
   private _signInLimit: { maxAttempts: number; windowMs: number };
   private _signUpLimit: { maxAttempts: number; windowMs: number };
   private _passwordResetLimit: { maxAttempts: number; windowMs: number };
+  /** 验证码验证尝试限流（默认关闭，opt-in） */
+  private _verifyCodeLimit: { maxAttempts: number; windowMs: number } | null;
+  /** 密码最小长度 */
+  private _passwordMinLength: number;
   /** user.create.after 钩子列表（事务提交后触发） */
   private _afterUserCreateHooks: Array<(user: { id: string; email?: string; name?: string }) => Promise<void>> = [];
 
@@ -231,10 +271,15 @@ export class OmniAuth {
 
     // 限流配置
     this._rateLimiter = config.rateLimit?.limiter ?? createMemoryRateLimiter();
+    this._getClientIp = config.rateLimit?.getClientIp ?? getClientIp;
     this._signInLimit = config.rateLimit?.signIn ?? DEFAULT_SIGN_IN_LIMIT;
     this._signUpLimit = config.rateLimit?.signUp ?? DEFAULT_SIGN_UP_LIMIT;
     this._passwordResetLimit =
       config.rateLimit?.passwordReset ?? DEFAULT_RESET_LIMIT;
+    this._verifyCodeLimit = config.rateLimit?.verifyCode ?? null;
+
+    // 密码策略（默认最短 8 位，与旧版行为一致）
+    this._passwordMinLength = config.passwordPolicy?.minLength ?? 8;
 
     // 社交账户服务（token refresher 经实例注册表查询）
     this._socialService = createSocialService(config.database, {
@@ -287,6 +332,15 @@ export class OmniAuth {
     return withTransaction(this.config.database, fn);
   }
 
+  /** 尽力重置限流计数（外部限流器异常时仅记录，不影响主流程） */
+  private async _safeResetRateLimit(key: string): Promise<void> {
+    try {
+      await this._rateLimiter.reset(key);
+    } catch (err) {
+      console.error("[OmniAuth] 限流计数重置失败:", err);
+    }
+  }
+
   /**
    * 注册核心三件套：user + credential account + SocialAccount 通道记录。
    * 由调用方包入事务，保证原子提交。
@@ -323,12 +377,20 @@ export class OmniAuth {
       },
     });
 
-    // 通道记录（同事务写入，失败即整体回滚）
-    const channelProvider = input.channel?.provider ?? "email";
-    const channelId = input.channel?.identifier ?? input.email;
+    // 通道记录（同事务写入，失败即整体回滚；扩展字段 4.1.0 起一并原子写入）
+    const channel = input.channel;
+    const channelProvider = channel?.provider ?? "email";
+    const channelId = channel?.identifier ?? input.email;
     await createSocialService(tx).bindToUser(userId, {
       provider: channelProvider,
       providerOpenid: channelId,
+      accessToken: channel?.accessToken,
+      refreshToken: channel?.refreshToken,
+      tokenExpiresAt: channel?.tokenExpiresAt,
+      profileData: channel?.profileData,
+      valid: channel?.valid,
+      allowPasswordUpdate: channel?.allowPasswordUpdate,
+      allowVerification: channel?.allowVerification,
     });
 
     return userId;
@@ -365,15 +427,8 @@ export class OmniAuth {
     });
 
     if (!record) {
-      // 兜底：用 ID 构造最小化对象
-      return {
-        id: userId,
-        name: "",
-        email: "",
-        image: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
+      // 数据不一致：流程中引用的 user 记录已不存在，抛错而非伪造空用户
+      throw new OmniAuthError("USER_NOT_FOUND", `用户记录不存在: ${userId}`);
     }
 
     return {
@@ -400,7 +455,7 @@ export class OmniAuth {
    */
   async signUp(input: SignUpInput, requestContext?: RequestContext): Promise<SignUpResult> {
     // 0. 速率限制：键为客户端 IP（防按邮箱锁死注册的 DoS）
-    const ip = getClientIp(requestContext);
+    const ip = this._getClientIp(requestContext);
     await checkRateLimit(
       this._rateLimiter,
       `signUp:${ip}`,
@@ -408,9 +463,9 @@ export class OmniAuth {
       this._signUpLimit.windowMs
     );
 
-    // 1. 验证密码长度
-    if (input.password.length < 6) {
-      throw new Error("密码长度不能少于 6 位");
+    // 1. 验证密码长度（策略可经 config.passwordPolicy 收紧）
+    if (input.password.length < this._passwordMinLength) {
+      throw new WeakPasswordError(`密码长度不能少于 ${this._passwordMinLength} 位`);
     }
 
     // 2. 检查邮箱是否已注册（友好提示；唯一约束在事务内兜底）
@@ -462,7 +517,7 @@ export class OmniAuth {
    */
   async signIn(input: SignInInput, requestContext?: RequestContext): Promise<SignInResult> {
     // 0. 速率限制：键为 ip:email 复合
-    const ip = getClientIp(requestContext);
+    const ip = this._getClientIp(requestContext);
     await checkRateLimit(
       this._rateLimiter,
       `signIn:${ip}:${input.email}`,
@@ -505,6 +560,9 @@ export class OmniAuth {
       });
       throw new InvalidPasswordError("邮箱或密码错误");
     }
+
+    // 登录成功：重置限流计数（历史失败不应锁死合法用户）
+    await this._safeResetRateLimit(`signIn:${ip}:${input.email}`);
 
     await this._publishAudit({ action: "signIn", userId: user.id, ip });
 
@@ -578,7 +636,7 @@ export class OmniAuth {
       };
     }
 
-    // 2. 不存在 → 注册新用户
+    // 2. 不存在 → 注册新用户（channelData 4.1.0 起随 signUp 同事务原子写入）
     const syntheticEmail = this._buildChannelEmail(input.provider, input.providerOpenid);
     const password = input.credential.type === "password"
       ? input.credential.value
@@ -590,33 +648,27 @@ export class OmniAuth {
         email: syntheticEmail,
         password,
         name,
-        channel: { provider: input.provider, identifier: input.providerOpenid },
+        channel: {
+          provider: input.provider,
+          identifier: input.providerOpenid,
+          accessToken: input.channelData?.accessToken,
+          refreshToken: input.channelData?.refreshToken,
+          tokenExpiresAt: input.channelData?.tokenExpiresAt,
+          profileData: input.channelData?.profileData,
+          valid: input.channelData?.valid ?? 1,
+          allowPasswordUpdate: input.channelData?.allowPasswordUpdate ?? 0,
+          allowVerification: input.channelData?.allowVerification ?? 0,
+        },
       },
       requestContext
     );
 
-    // 3. 更新渠道字段（signUp 已在事务内创建基础 SocialAccount，此处追加 valid / extra data）
-    const channelUpdate = {
-      accessToken: input.channelData?.accessToken,
-      refreshToken: input.channelData?.refreshToken,
-      tokenExpiresAt:
-        input.channelData?.tokenExpiresAt != null
-          ? input.channelData.tokenExpiresAt instanceof Date
-            ? input.channelData.tokenExpiresAt
-            : new Date(input.channelData.tokenExpiresAt)
-          : undefined,
-      profileData: input.channelData?.profileData,
-      valid: input.channelData?.valid ?? 1,
-      allowPasswordUpdate: input.channelData?.allowPasswordUpdate ?? 0,
-      allowVerification: input.channelData?.allowVerification ?? 0,
-    };
-
-    const updatedRecord = await this.db.socialAccount.updateOne({
+    // 3. 回读渠道记录（已在 signUp 事务内与 user/account 原子提交）
+    const updatedRecord = await this.db.socialAccount.findOne({
       where: [
         { field: "provider", value: input.provider },
         { field: "providerOpenid", value: input.providerOpenid },
       ],
-      update: channelUpdate,
     });
 
     if (!updatedRecord) {
@@ -655,8 +707,8 @@ export class OmniAuth {
     requestContext?: RequestContext
   ): Promise<SignUpResult> {
     // 1. 密码校验
-    if (input.password.length < 6) {
-      throw new Error("密码长度不能少于 6 位");
+    if (input.password.length < this._passwordMinLength) {
+      throw new WeakPasswordError(`密码长度不能少于 ${this._passwordMinLength} 位`);
     }
 
     // 2. 防重复：检查社交账户是否已被绑定（唯一约束在事务内兜底）
@@ -723,7 +775,7 @@ export class OmniAuth {
     requestContext?: RequestContext
   ): Promise<void> {
     // 速率限制：3 次/10 分钟
-    const ip = getClientIp(requestContext);
+    const ip = this._getClientIp(requestContext);
     await checkRateLimit(
       this._rateLimiter,
       `passwordReset:${ip}:${provider}:${providerOpenid}`,
@@ -847,6 +899,9 @@ export class OmniAuth {
    * 将用户提交的验证码交给 provider 注册的 verifier 判定，
    * 库无条件透传验证结果。不要求登录态（注册/绑定场景可能未登录），
    * 调用者自行判断业务上下文。
+   *
+   * 4.1.0：配置 rateLimit.verifyCode 后按 `provider:providerOpenid`
+   * 限制尝试次数（防短验证码爆破），验证成功时重置计数。
    */
   async verifyChannelCode(
     provider: string,
@@ -854,7 +909,30 @@ export class OmniAuth {
     code: string,
     channelRef?: SocialAccountRef
   ): Promise<boolean> {
-    return this._channelVerification.verifyCode(provider, providerOpenid, code, channelRef);
+    // 可选尝试次数限流（opt-in；未配置时行为与旧版一致）
+    const limitKey = `verifyCode:${provider}:${providerOpenid}`;
+    if (this._verifyCodeLimit) {
+      await checkRateLimit(
+        this._rateLimiter,
+        limitKey,
+        this._verifyCodeLimit.maxAttempts,
+        this._verifyCodeLimit.windowMs
+      );
+    }
+
+    const ok = await this._channelVerification.verifyCode(
+      provider,
+      providerOpenid,
+      code,
+      channelRef
+    );
+
+    // 验证成功：重置计数（后续合法验证不受历史失败影响）
+    if (ok && this._verifyCodeLimit) {
+      await this._safeResetRateLimit(limitKey);
+    }
+
+    return ok;
   }
 
   /** 注册指定 provider 的验证码发送器（实例级注册表） */

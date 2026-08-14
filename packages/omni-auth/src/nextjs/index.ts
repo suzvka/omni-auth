@@ -21,7 +21,12 @@ export type { TokenRefresher, TokenRefreshResult, SocialAccountRef } from "../so
 export type { OAuthProviderConfig, OAuthCallbackResult } from "../oauth/types";
 
 // 错误类
-export { UnauthorizedError, InvalidPasswordError, SocialAccountConflictError } from "../errors";
+export {
+  UnauthorizedError,
+  InvalidPasswordError,
+  SocialAccountConflictError,
+  WeakPasswordError,
+} from "../errors";
 
 /** 从 Next.js headers() 构建 RequestContext */
 export function nextjsRequestContext(
@@ -87,6 +92,8 @@ export interface QuickAuthConfig {
   audit?: import("../core/audit").AuditHandler;
   /** 速率限制配置 */
   rateLimit?: import("../auth").OmniAuthRateLimitConfig;
+  /** 密码策略（4.1.0；不配置时保持默认最短 6 位） */
+  passwordPolicy?: import("../auth").OmniAuthPasswordPolicy;
 }
 
 /**
@@ -113,7 +120,6 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
 
   if (isDeclarativeDbConfig(config.database)) {
     // 声明式配置：内置 pg 驱动
-    console.log("[omni-auth] 使用内置 PgAdapter（声明式配置）");
     database = PgAdapter(config.database);
   } else {
     database = config.database;
@@ -126,5 +132,6 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
     hooks: config.hooks,
     audit: config.audit,
     rateLimit: config.rateLimit,
+    passwordPolicy: config.passwordPolicy,
   });
 }

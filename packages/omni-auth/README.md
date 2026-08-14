@@ -59,11 +59,29 @@ export const auth = createQuickAuth({
 | 接口 | 键 | 默认策略 |
 |---|---|---|
 | signUp | 客户端 IP | 3 次 / 1 小时 |
-| signIn | `ip:email` | 5 次 / 15 分钟 |
+| signIn | `ip:email` | 5 次 / 15 分钟（成功后重置计数） |
 | passwordReset | `ip:provider:openid` | 3 次 / 10 分钟 |
+| verifyChannelCode | `provider:openid` | 默认关闭，opt-in |
 
 signUp 按 IP 而非邮箱限流，防止攻击者消耗受害者邮箱配额、
 锁死其注册的 DoS。
+
+安全加固（4.1.0 起）：
+
+```ts
+export const auth = createQuickAuth({
+  database: { url: process.env.DATABASE_URL! },
+  baseUrl: process.env.BETTER_AUTH_URL!,
+  rateLimit: {
+    // 可信代理部署：从 x-forwarded-for 右侧数 1 跳，防头部伪造绕过限流
+    getClientIp: (ctx) => getClientIp(ctx, { trustedProxyDepth: 1 }),
+    // 防短验证码爆破（建议开启）
+    verifyCode: { maxAttempts: 5, windowMs: 10 * 60 * 1000 },
+  },
+  // 收紧密码策略（默认最短 6 位，行为不变）
+  passwordPolicy: { minLength: 8 },
+});
+```
 
 ## 设计决策
 

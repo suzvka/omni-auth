@@ -9,6 +9,7 @@ export { OmniAuth as ChangfengAuth } from "./auth";
 export type {
   OmniAuthConfig,
   OmniAuthRateLimitConfig,
+  OmniAuthPasswordPolicy,
   SignUpInput,
   SignUpResult,
   SignInInput,
@@ -29,6 +30,7 @@ export {
   SocialAccountConflictError,
   RateLimitedError,
   UserExistsError,
+  WeakPasswordError,
   CredentialInvalidError,
   OAuthStateMismatchError,
   UniqueViolationError,
@@ -42,6 +44,7 @@ export type { DatabaseAdapter, WhereCondition, WhereOperator, SearchCondition, O
 export { withTransaction } from "./adapters/database";
 export type { RequestContext } from "./adapters/request";
 export { createRequestContext, getClientIp } from "./adapters/request";
+export type { ClientIpOptions } from "./adapters/request";
 
 // 类型化数据访问（typed 门面）
 export type {

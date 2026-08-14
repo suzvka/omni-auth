@@ -60,6 +60,14 @@ export class UserExistsError extends OmniAuthError {
   }
 }
 
+/** 密码不满足强度要求（如长度不足） */
+export class WeakPasswordError extends OmniAuthError {
+  constructor(message = "密码不满足强度要求") {
+    super("WEAK_PASSWORD", message);
+    this.name = "WeakPasswordError";
+  }
+}
+
 /** 凭证无效或未按契约预先验证 */
 export class CredentialInvalidError extends OmniAuthError {
   constructor(message: string) {
