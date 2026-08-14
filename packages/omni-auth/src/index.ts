@@ -142,18 +142,12 @@ export { extractAuditContext } from "./core/audit";
 // CSRF 同源校验
 export { isSameOrigin, createOriginCheck } from "./core/origin";
 
-// 通道映射工具
+// 占位邮箱工具
 export {
-  phoneToSyntheticEmail,
-  isSyntheticEmail,
-  syntheticEmailToPhone,
   generateRandomPassword,
-  isChannelProvider,
   buildPlaceholderEmail,
   PLACEHOLDER_EMAIL_DOMAIN,
-  SYNTHETIC_EMAIL_DOMAIN,
 } from "./core/channel-mapping";
-export type { ChannelProvider } from "./core/channel-mapping";
 
 // 实例注册表
 export type { OmniRegistry } from "./registry";

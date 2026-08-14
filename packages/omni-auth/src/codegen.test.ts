@@ -18,7 +18,6 @@ describe("generateDDL（SQL DDL 生成）", () => {
   it("user 表列定义正确（类型/非空/默认值/主键）", () => {
     const ddl = generateDDL(schema);
     expect(ddl).toContain('"email" TEXT NOT NULL');
-    expect(ddl).toContain('"emailVerified" BOOLEAN NOT NULL DEFAULT FALSE');
     expect(ddl).toContain('"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()');
     expect(ddl).toContain('PRIMARY KEY ("id")');
   });
@@ -85,7 +84,6 @@ describe("generatePrismaSchema（Prisma schema 生成）", () => {
     expect(prisma).toContain("  id String @id @default(cuid())");
     expect(prisma).toContain("  name String");
     expect(prisma).toContain("  email String @unique");
-    expect(prisma).toContain("  emailVerified Boolean @default(false)");
     expect(prisma).toContain("  image String?");
     expect(prisma).toContain("  createdAt DateTime @default(now())");
     expect(prisma).toContain("  updatedAt DateTime @updatedAt");

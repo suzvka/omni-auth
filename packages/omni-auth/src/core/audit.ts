@@ -25,8 +25,6 @@ export type AuditAction =
   | "resetPasswordDone"
   | "deleteAccount"
   | "updateProfile"
-  | "emailVerificationRequest"
-  | "emailVerified"
   | "channelBind"
   | "channelUnbind"
   | "socialBind"

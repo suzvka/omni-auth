@@ -31,7 +31,6 @@ import { createChannelVerification } from "./core/verification-channel";
 import type { VerificationSender, VerificationVerifier } from "./core/verification-channel";
 import { createDbFacade, type DbFacade } from "./models";
 import {
-  phoneToSyntheticEmail,
   buildPlaceholderEmail,
   generateRandomPassword,
 } from "./core/channel-mapping";
@@ -306,7 +305,6 @@ export class OmniAuth {
         id: userId,
         name: input.name,
         email: input.email,
-        emailVerified: false,
         image: null,
         createdAt: now,
         updatedAt: now,
@@ -347,15 +345,16 @@ export class OmniAuth {
     }
   }
 
-  /** 为指定渠道构建合成邮箱 */
+  /**
+   * 构建渠道对应的 user.email。
+   *
+   * 渠道模型：邮箱渠道的标识符即用户邮箱；其余渠道（手机 / OAuth 等）
+   * 统一使用占位邮箱（完整 openid，不截断）。
+   */
   private _buildChannelEmail(provider: string, providerOpenid: string): string {
-    if (provider === "phone") {
-      return phoneToSyntheticEmail(providerOpenid);
-    }
     if (provider === "email") {
       return providerOpenid;
     }
-    // OAuth 等其他渠道：占位邮箱（完整 openid，不截断）
     return buildPlaceholderEmail(provider, providerOpenid);
   }
 
@@ -371,7 +370,6 @@ export class OmniAuth {
         id: userId,
         name: "",
         email: "",
-        emailVerified: false,
         image: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -382,7 +380,6 @@ export class OmniAuth {
       id: record.id,
       name: record.name ?? "",
       email: record.email ?? "",
-      emailVerified: record.emailVerified ?? false,
       image: record.image ?? null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

@@ -185,7 +185,6 @@ describe("createPasswordReset", () => {
             id: USER_ID,
             name: "Test User",
             email: OPENID,
-            emailVerified: false,
             createdAt: new Date(),
             updatedAt: new Date(),
         });

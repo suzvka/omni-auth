@@ -381,6 +381,44 @@ describe("createOAuthHandler — 新用户注册", () => {
         expect(users[0].email).toBe("wechat_wx_test_user_1@oauth.usercenter");
     });
 
+    it("平台返回邮箱时仍用占位邮箱，邮箱存入渠道资料（渠道模型：OAuth 身份 = provider+openid）", async () => {
+        ctx.providers.set("github", {
+            provider: "github",
+            exchangeCode: async () => ({
+                openid: "gh_with_email",
+                accessToken: "at_gh_email",
+                email: "real@example.com",
+                name: "GitHub User",
+            }),
+        });
+
+        ctx.mockSocialService.findByProvider.mockResolvedValue(null);
+        ctx.mockSocialService.bindToUser.mockResolvedValue({
+            id: "sa_email",
+            valid: 1,
+            allowPasswordUpdate: 0,
+        });
+
+        await ctx.handler("github", "code", "http://localhost/callback", okState());
+
+        const users = await db.findMany({
+            model: "user",
+            where: [],
+        }) as Record<string, unknown>[];
+        expect(users).toHaveLength(1);
+        expect(users[0].email).toBe("github_gh_with_email@oauth.usercenter");
+
+        // provider 邮箱仅作渠道资料，不充当 user.email（避免跨渠道邮箱碰撞）
+        expect(ctx.mockSocialService.bindToUser).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                provider: "github",
+                providerOpenid: "gh_with_email",
+                profileData: expect.objectContaining({ email: "real@example.com" }),
+            })
+        );
+    });
+
     it("平台不返回 name 时使用默认名称", async () => {
         ctx.providers.set("github", {
             provider: "github",

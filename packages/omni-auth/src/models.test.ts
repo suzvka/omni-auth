@@ -134,7 +134,7 @@ describe("createDbFacade（类型化表视图）", () => {
 
   it("user 视图：create / findOne / findMany / count 全链路", async () => {
     const created = await db.user.create({
-      data: { name: "张三", email: "a@b.c", emailVerified: false },
+      data: { name: "张三", email: "a@b.c" },
     });
     expect(created.id).toBeDefined();
     expect(created.email).toBe("a@b.c");

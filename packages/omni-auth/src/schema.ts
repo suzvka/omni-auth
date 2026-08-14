@@ -12,7 +12,6 @@
 import {
   table,
   text,
-  boolean,
   integer,
   jsonb,
   timestamptz,
@@ -29,7 +28,6 @@ export const user = table("user", {
   id: text().primaryKey(),
   name: text().notNull(),
   email: text().notNull().unique(),
-  emailVerified: boolean().notNull().default(false),
   image: text(),
   createdAt: timestamptz().notNull().default("NOW()"),
   updatedAt: timestamptz().notNull(),

@@ -309,8 +309,9 @@ export function createOAuthHandler(deps: {
 
         // ---- 3. 新建用户 + 绑定社交账户（事务，原子提交） ----
 
-        const email =
-            exchanged.email ?? buildPlaceholderEmail(provider, exchanged.openid);
+        // 渠道模型：OAuth 身份 = provider + openid，provider 邮箱仅作渠道资料，
+        // 不充当 user.email（避免不同渠道用户邮箱碰撞触发唯一约束冲突）
+        const email = buildPlaceholderEmail(provider, exchanged.openid);
         const name = exchanged.name ?? `${provider}_用户`;
         const password = generateRandomPassword();
         const passwordHash = await hashPassword(password);
@@ -333,7 +334,6 @@ export function createOAuthHandler(deps: {
                         id: userId,
                         email,
                         name,
-                        emailVerified: false,
                         createdAt: now,
                         updatedAt: now,
                     },
@@ -359,7 +359,10 @@ export function createOAuthHandler(deps: {
                     accessToken: exchanged.accessToken,
                     refreshToken: exchanged.refreshToken,
                     tokenExpiresAt: exchanged.expiresAt,
-                    profileData: exchanged.profileData,
+                    profileData: {
+                        ...(exchanged.profileData ?? {}),
+                        ...(exchanged.email ? { email: exchanged.email } : {}),
+                    },
                     valid: 1,
                     allowPasswordUpdate: 0,
                 });

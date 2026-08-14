@@ -1,5 +1,35 @@
 # Changelog
 
+## 4.0.0（未发布）
+
+> **渠道模型清理**：接受"手机 / 邮箱 / 社交媒体一律作为渠道登记"的
+> 现实，删除基于"邮箱 / 手机特化"假设的机制。破坏性变更。
+
+### 移除（公开 API）
+
+- **手机合成邮箱整套**：`phoneToSyntheticEmail` / `syntheticEmailToPhone` /
+  `isSyntheticEmail` / `SYNTHETIC_EMAIL_DOMAIN` 及类型 `ChannelProvider`、
+  函数 `isChannelProvider`（均已弃用 / 零消费者）。
+  非邮箱渠道统一使用占位邮箱 `{provider}_{openid}@oauth.usercenter`。
+- **`user.emailVerified` 列**：纯邮箱中心概念，从未被置 true；渠道模型下
+  验证状态由 `SocialAccount.valid` / `allowVerification` 承载。
+  `PublicUser` 同步移除该字段（需数据库迁移）。
+- **审计类型** `emailVerificationRequest` / `emailVerified`（从未发射）。
+
+### 行为变更
+
+- **OAuth 回调不再以 provider 邮箱充当 `user.email`**：一律使用占位邮箱，
+  provider 邮箱仅存入 `socialAccount.profileData.email`。修复不同渠道用户
+  邮箱碰撞触发唯一约束的问题。
+- **手机渠道** 的 `user.email` 由 `phone+{phone}@phone.omni.internal`
+  变为通用占位邮箱 `phone_{openid}@oauth.usercenter`。
+
+### 保留（渠道模型的正当机制）
+
+- `buildPlaceholderEmail` / `PLACEHOLDER_EMAIL_DOMAIN` / `generateRandomPassword`
+- `SocialAccount` 的 `valid` / `allowPasswordUpdate` / `allowVerification`
+- 渠道验证码委托体系（sender / verifier）
+
 ## 3.0.0（2026-08-13）
 
 > **重大版本**：事务原子性、实例级注册表、类型化内部数据访问。
