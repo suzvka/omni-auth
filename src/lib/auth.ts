@@ -23,12 +23,12 @@ export const auth = createQuickAuth({
   baseUrl,
   hooks: {
     // businessAccount 属 app 业务表：SDK 事务提交后由此钩子创建
-    onUserCreated: async ({ userId, email, name }) => {
+    onUserCreated: async ({ userId, name }) => {
       const existing = await businessAccountRepo.findByAuthUserId(userId);
       if (!existing) {
         await businessAccountRepo.create({
           authUserId: userId,
-          displayName: name || email || userId,
+          displayName: name || userId,
           status: "active",
         });
       }

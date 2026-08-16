@@ -200,7 +200,7 @@ function createTestAuth(
 // ----------------------------------------------------------
 
 describe("OmniAuth 凭证校验", () => {
-    it("signUp 创建 user + account（不创建会话令牌）", async () => {
+    it("signUp 创建 user + email 渠道（不创建会话令牌）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
@@ -212,31 +212,34 @@ describe("OmniAuth 凭证校验", () => {
 
         // 返回用户信息
         expect(result.userId).toBeTruthy();
-        expect(result.user.email).toBe("alice@test.local");
+        expect(result.user.name).toBe("Alice");
 
-        // user 表有 1 条记录
+        // user 表有 1 条记录，password 已哈希（共享密码存放处）
         const users = memDb.dump("user");
         expect(users.length).toBe(1);
-        expect(users[0].email).toBe("alice@test.local");
+        expect(users[0].name).toBe("Alice");
+        expect(users[0].password).toBeTruthy();
+        expect(users[0].password).not.toBe("password123"); // 确认不是明文
 
-        // account 表有 1 条记录，providerId = credential，password 已哈希
-        const accounts = memDb.dump("account");
-        expect(accounts.length).toBe(1);
-        expect(accounts[0].providerId).toBe("credential");
-        expect(accounts[0].password).toBeTruthy();
-        expect(accounts[0].password).not.toBe("password123"); // 确认不是明文
+        // email 渠道记录已创建（provider=email，valid=1 真实登记）
+        const channels = memDb.dump("socialAccount");
+        expect(channels.length).toBe(1);
+        expect(channels[0].provider).toBe("email");
+        expect(channels[0].providerOpenid).toBe("alice@test.local");
+        expect(channels[0].valid).toBe(1);
+        expect(channels[0].allowPasswordUpdate).toBe(1);
     });
 
-    it("signUp 密码长度不足 6 位时拒绝（WeakPasswordError）", async () => {
+    it("signUp 密码长度不足默认 8 位时拒绝（WeakPasswordError）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
         await expect(
-            auth.signUp({ email: "short@test.local", password: "123", name: "Short" })
+            auth.signUp({ email: "short@test.local", password: "1234567", name: "Short" })
         ).rejects.toThrow(WeakPasswordError);
         await expect(
-            auth.signUp({ email: "short@test.local", password: "123", name: "Short" })
-        ).rejects.toThrow("密码长度不能少于 6 位");
+            auth.signUp({ email: "short@test.local", password: "1234567", name: "Short" })
+        ).rejects.toThrow("密码长度不能少于 8 位");
     });
 
     it("signUp 重复邮箱时拒绝", async () => {
@@ -266,7 +269,7 @@ describe("OmniAuth 凭证校验", () => {
         });
 
         expect(signInResult.userId).toBe(signUpResult.userId);
-        expect(signInResult.user.email).toBe("bob@test.local");
+        expect(signInResult.user.name).toBe("Bob");
     });
 
     it("signIn 密码错误时拒绝", async () => {
@@ -295,7 +298,7 @@ describe("OmniAuth 凭证校验", () => {
 
     it("signUp 触发 onUserCreated hook", async () => {
         const memDb = createInMemoryDb();
-        let hookPayload: { userId: string; email?: string; name?: string } | null = null;
+        let hookPayload: { userId: string; name?: string } | null = null;
 
         const auth = createTestAuth(memDb, {
             hooks: {
@@ -313,7 +316,6 @@ describe("OmniAuth 凭证校验", () => {
 
         expect(hookPayload).not.toBeNull();
         expect(hookPayload!.userId).toBe(result.userId);
-        expect(hookPayload!.email).toBe("hook@test.local");
         expect(hookPayload!.name).toBe("Hook");
     });
 
@@ -342,9 +344,9 @@ describe("OmniAuth 凭证校验", () => {
             name: "Hash",
         });
 
-        // 从 DB 读取 account 记录
-        const accounts = memDb.dump("account");
-        const storedHash = accounts[0].password as string;
+        // 从 DB 读取 user 记录（共享密码存放处）
+        const users = memDb.dump("user");
+        const storedHash = users[0].password as string;
 
         // 确认存储的是哈希值
         expect(storedHash).not.toBe("mypassword");
@@ -540,28 +542,6 @@ function createTxFailureDb(failFrom = 2) {
 }
 
 describe("事务原子性（3.0.0）", () => {
-    it("signUpWithSocial 社交绑定失败时整体回滚（user/account 不留存）", async () => {
-        const { adapter, dump } = createTxFailureDb();
-        const auth = createAuth({
-            database: adapter,
-            baseUrl: "http://localhost:3000",
-        });
-
-        await expect(
-            auth.signUpWithSocial({
-                email: "tx@test.local",
-                password: "password123",
-                name: "Tx",
-                social: { provider: "wechat", providerOpenid: "oid_tx" },
-            })
-        ).rejects.toThrow("simulated social bind failure");
-
-        // 事务回滚：三张表均无残留
-        expect(dump("user").length).toBe(0);
-        expect(dump("account").length).toBe(0);
-        expect(dump("socialAccount").length).toBe(0);
-    });
-
     it("适配器未实现 transaction 时回退顺序写入（功能可用）", async () => {
         const memDb = createInMemoryDb();
         const { transaction: _unused, ...rest } = memDb as DatabaseAdapter & {
@@ -650,28 +630,28 @@ describe("密码策略（4.1.0）", () => {
         ).resolves.toBeTruthy();
     });
 
-    it("signUpWithSocial 同样遵循密码策略", async () => {
+    it("authenticateChannel 密码凭证注册同样遵循密码策略", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb, {
             passwordPolicy: { minLength: 8 },
         });
 
         await expect(
-            auth.signUpWithSocial({
-                email: "ps@test.local",
-                password: "1234567",
-                name: "P",
-                social: { provider: "wechat", providerOpenid: "oid_ps" },
+            auth.authenticateChannel({
+                provider: "phone",
+                providerOpenid: "13800000000",
+                credential: { type: "password", value: "1234567" },
+                profile: { name: "P" },
             })
         ).rejects.toThrow(WeakPasswordError);
     });
 
-    it("不配置时默认仍为 6 位（行为兼容）", async () => {
+    it("不配置时默认最短 8 位", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
         await expect(
-            auth.signUp({ email: "p6@test.local", password: "123456", name: "P" })
+            auth.signUp({ email: "p8@test.local", password: "12345678", name: "P" })
         ).resolves.toBeTruthy();
     });
 });
@@ -824,9 +804,8 @@ describe("authenticateChannel 渠道写入原子性（4.1.0）", () => {
             })
         ).rejects.toThrow("simulated social bind failure");
 
-        // 事务回滚：三张表均无残留（旧版事务外 updateOne 会残留 user/account）
+        // 事务回滚：两张表均无残留（旧版事务外 updateOne 会残留 user）
         expect(dump("user").length).toBe(0);
-        expect(dump("account").length).toBe(0);
         expect(dump("socialAccount").length).toBe(0);
     });
 });

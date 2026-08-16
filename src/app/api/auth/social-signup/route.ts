@@ -5,6 +5,7 @@ import { checkSameOriginFromHeaders, CROSS_ORIGIN_ERROR } from "@/lib/csrf";
 // ============================================================
 // POST /api/auth/social-signup
 // 统一通道注册：通过 authenticateChannel 一行完成注册+绑定
+// 5.0.0：渠道化后不再需要邮箱——注册身份 = provider + providerOpenid
 // ============================================================
 
 export async function POST(request: Request) {
@@ -16,8 +17,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    const { email, password, name, social } = body as {
-      email?: string;
+    const { password, name, social } = body as {
       password?: string;
       name?: string;
       social?: {
@@ -31,9 +31,9 @@ export async function POST(request: Request) {
     };
 
     // ---------- 校验 ----------
-    if (!email || !password || !name) {
+    if (!password || !name) {
       return NextResponse.json(
-        { error: "缺少必填字段：email, password, name" },
+        { error: "缺少必填字段：password, name" },
         { status: 400 }
       );
     }

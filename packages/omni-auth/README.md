@@ -59,7 +59,7 @@ export const auth = createQuickAuth({
 | 接口 | 键 | 默认策略 |
 |---|---|---|
 | signUp | 客户端 IP | 3 次 / 1 小时 |
-| signIn | `ip:email` | 5 次 / 15 分钟（成功后重置计数） |
+| signIn | `ip:provider:openid` | 5 次 / 15 分钟（成功后重置计数） |
 | passwordReset | `ip:provider:openid` | 3 次 / 10 分钟 |
 | verifyChannelCode | `provider:openid` | 默认关闭，opt-in |
 
@@ -78,10 +78,24 @@ export const auth = createQuickAuth({
     // 防短验证码爆破（建议开启）
     verifyCode: { maxAttempts: 5, windowMs: 10 * 60 * 1000 },
   },
-  // 收紧密码策略（默认最短 6 位，行为不变）
+  // 收紧密码策略（默认最短 8 位）
   passwordPolicy: { minLength: 8 },
 });
 ```
+
+## 渠道模型（5.0.0）
+
+存储层为两张表：
+
+- `user`：聚合身份 + 共享密码（`password` 可空，OAuth-only 用户无密码）
+- `socialAccount`：渠道身份（`provider + providerOpenid` 唯一），
+  持有该渠道的 token / 资料 / 能力标记（valid / allowPasswordUpdate /
+  allowVerification）
+
+邮箱是普通渠道：`(provider="email", providerOpenid=邮箱地址)`，与微信、
+GitHub 等完全同构。`signUp` / `signIn` 是它的便捷方法；其他渠道一律走
+`authenticateChannel`。任何渠道密码登录都验证同一个 `user.password`
+（共享密码）。从 4.x 升级需运行迁移脚本（见 CHANGELOG 5.0.0）。
 
 ## 设计决策
 
@@ -93,7 +107,7 @@ export const auth = createQuickAuth({
 - **非密码凭证契约**：`authenticateChannel` 对 smsCode / oauthCode
   等凭证不代为验证，调用方必须预先验证并声明
   `credential.verified = true`。
-- **多表写入原子性**：注册流程（user + account + socialAccount）
+- **多表写入原子性**：注册流程（user + socialAccount）
   包入 `DatabaseAdapter.transaction`；自定义适配器未实现事务时
   回退为顺序写入（仅警告）。
 

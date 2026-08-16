@@ -180,11 +180,11 @@ describe("createPasswordReset", () => {
         registry.senders.set(PROVIDER, mockSender);
         registry.verifiers.set(PROVIDER, mockVerifier);
 
-        // 预置：用户
+        // 预置：用户（含共享密码哈希，5.0.0 起密码存 user 表）
         db._createRaw("user", {
             id: USER_ID,
             name: "Test User",
-            email: OPENID,
+            password: await hashPassword(OLD_PASSWORD),
             createdAt: new Date(),
             updatedAt: new Date(),
         });
@@ -198,17 +198,6 @@ describe("createPasswordReset", () => {
             valid: 1,
             allowPasswordUpdate: 1,
             allowVerification: 1,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        });
-
-        // 预置：credential account（含旧密码哈希）
-        const hashedOld = await hashPassword(OLD_PASSWORD);
-        db._createRaw("account", {
-            id: "acc-1",
-            userId: USER_ID,
-            providerId: "credential",
-            password: hashedOld,
             createdAt: new Date(),
             updatedAt: new Date(),
         });
@@ -234,10 +223,10 @@ describe("createPasswordReset", () => {
             );
             expect(returnedUserId).toBe(USER_ID);
 
-            // 3. 密码已更新：新密码可验证，旧密码不可验证
-            const account = db._records("account")[0];
-            expect(await verifyPassword(account.password as string, NEW_PASSWORD)).toBe(true);
-            expect(await verifyPassword(account.password as string, OLD_PASSWORD)).toBe(false);
+            // 3. 密码已更新：新密码可验证，旧密码不可验证（user.password）
+            const user = db._records("user")[0];
+            expect(await verifyPassword(user.password as string, NEW_PASSWORD)).toBe(true);
+            expect(await verifyPassword(user.password as string, OLD_PASSWORD)).toBe(false);
         });
 
         it("无效验证码 → 抛错且不修改密码", async () => {
@@ -248,8 +237,8 @@ describe("createPasswordReset", () => {
             ).rejects.toThrow("验证码错误或已过期");
 
             // 密码未变：旧密码仍可验证
-            const account = db._records("account")[0];
-            expect(await verifyPassword(account.password as string, OLD_PASSWORD)).toBe(true);
+            const user = db._records("user")[0];
+            expect(await verifyPassword(user.password as string, OLD_PASSWORD)).toBe(true);
         });
 
         it("验证码已过期（渠道侧判定）→ 抛错", async () => {
@@ -278,18 +267,20 @@ describe("createPasswordReset", () => {
             ).rejects.toThrow("未找到对应的用户账户");
         });
 
-        it("用户未设置密码 → 抛错", async () => {
+        it("用户无密码（OAuth-only）→ 重置即从无到有设置密码", async () => {
             const pr = createPasswordReset({ db, channelVerification: createChannelVerification(registry) });
 
-            // 删除 credential account
-            db._records("account").length = 0;
+            // 清除 user.password（模拟 OAuth-only 用户）
+            db._records("user")[0].password = null;
 
             await pr.requestReset(PROVIDER, OPENID);
             const code = sentCode!;
 
-            await expect(
-                pr.reset(PROVIDER, OPENID, code, NEW_PASSWORD)
-            ).rejects.toThrow("用户未设置密码");
+            const returnedUserId = await pr.reset(PROVIDER, OPENID, code, NEW_PASSWORD);
+            expect(returnedUserId).toBe(USER_ID);
+
+            const user = db._records("user")[0];
+            expect(await verifyPassword(user.password as string, NEW_PASSWORD)).toBe(true);
         });
     });
 });

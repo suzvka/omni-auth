@@ -52,8 +52,9 @@ export function createPasswordReset(deps: PasswordResetDeps) {
         /**
          * 执行密码重置。
          *
-         * 流程：verifyCode（委托渠道验证）→ 查找用户 → hashPassword → 更新。
+         * 流程：verifyCode（委托渠道验证）→ 查找用户 → hashPassword → 更新 user.password。
          * 验证码的状态管理与一次性消费由渠道 verifier 实现方负责。
+         * 用户可无密码（OAuth-only），重置即从无到有设置密码。
          *
          * @param provider       渠道类型
          * @param providerOpenid 渠道标识符
@@ -88,22 +89,10 @@ export function createPasswordReset(deps: PasswordResetDeps) {
 
             const userId = socialAccount.userId;
 
-            // 3. 查找 credential account（密码存放处）
-            const account = await dbf.account.findOne({
-                where: [
-                    { field: "userId", value: userId },
-                    { field: "providerId", value: "credential" },
-                ],
-            });
-
-            if (!account || !account.password) {
-                throw new Error("用户未设置密码");
-            }
-
-            // 4. 哈希新密码并更新
+            // 3. 哈希新密码并更新共享密码（user 表）
             const hashedPassword = await hashPassword(newPassword);
-            await dbf.account.updateOne({
-                where: [{ field: "id", value: account.id }],
+            await dbf.user.updateOne({
+                where: [{ field: "id", value: userId }],
                 update: {
                     password: hashedPassword,
                     updatedAt: new Date(),

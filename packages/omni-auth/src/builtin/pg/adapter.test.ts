@@ -45,27 +45,27 @@ describe("PgAdapter", () => {
     expect(mockPoolCtor).toHaveBeenCalledTimes(1); // 同一实例只建一个池
   });
 
-  it("SELECT 使用引号标识符保持驼峰列名（providerId 而非 providerid）", async () => {
+  it("SELECT 使用引号标识符保持驼峰列名（providerOpenid 而非 provideropenid）", async () => {
     const adapter = PgAdapter({ url: "postgres://localhost:5432/db" });
     await adapter.findOne({
-      model: "account",
-      where: [{ field: "providerId", value: "credential" }],
+      model: "socialAccount",
+      where: [{ field: "providerOpenid", value: "oid-1" }],
     });
     const sql = mockQuery.mock.calls[0][0] as string;
-    expect(sql).toContain('FROM "account"');
-    expect(sql).toContain('"providerId"');
+    expect(sql).toContain('FROM "socialAccount"');
+    expect(sql).toContain('"providerOpenid"');
   });
 
   it("INSERT 使用引号列名（数据写入驼峰列）", async () => {
     mockQuery.mockResolvedValue({ rows: [{ id: "a1" }], rowCount: 1 });
     const adapter = PgAdapter({ url: "postgres://localhost:5432/db" });
     await adapter.create({
-      model: "account",
-      data: { providerId: "credential", userId: "u1", password: "hash" },
+      model: "socialAccount",
+      data: { providerOpenid: "oid-1", userId: "u1", accessToken: "at" },
     });
     const sql = mockQuery.mock.calls[0][0] as string;
-    expect(sql).toContain('INSERT INTO "account"');
-    expect(sql).toContain('"providerId"');
+    expect(sql).toContain('INSERT INTO "socialAccount"');
+    expect(sql).toContain('"providerOpenid"');
     expect(sql).toContain('"userId"');
   });
 });

@@ -1,5 +1,49 @@
 # Changelog
 
+## 5.0.0（未发布）
+
+> **渠道化重构：两表模型（user + socialAccount）**。删除 account 表与
+> user.email 邮箱锚点，密码以共享语义上移至 user.password；邮箱降级为
+> 普通渠道（provider="email"）。占位邮箱、随机密码与全部渠道特判随之
+> 消亡——代码只关心抽象的"渠道"，从不关心具体渠道实现。破坏性变更。
+
+### 移除（公开 API / 存储）
+
+- **`account` 表**：整体删除（providerId 恒为 credential 的密码存放表，
+  OAuth 字段全部闲置）。密码哈希迁至 `user.password`。
+- **`user.email` 列与 `user_email_key` 唯一索引**：邮箱锚点删除。
+  邮箱身份 = socialAccount 的 `(provider="email", providerOpenid=邮箱地址)`。
+- **占位邮箱整套**：`buildPlaceholderEmail` / `PLACEHOLDER_EMAIL_DOMAIN` /
+  `generateRandomPassword` 及 core/channel-mapping.ts 模块整体删除。
+- **`signUpWithSocial`**：功能已由 authenticateChannel 覆盖，删除。
+- **`PublicUser.email`**：删除（邮箱信息通过 `auth.social.listByUser` 获取渠道记录）。
+- **`UserCreatedPayload.email`**：hooks 载荷简化为 `{ userId, name }`。
+- **`SignUpInput.channel.provider / identifier`**：signUp 固定创建 email 渠道，
+  channel 仅承载该渠道的 token / 资料 / 能力标记。
+- **`DbFacade.account` / `AccountRow` / `AccountInsert` / `account`（schema）导出**。
+
+### 行为变更
+
+- **密码共享语义**：登录验证一律 `user.password`（可空，OAuth-only 用户无密码），
+  任何渠道密码登录验同一哈希。
+- **OAuth 新用户不再生成随机密码**：`password = null`，
+  后续可通过渠道验证码设置密码（resetPassword 允许从无到有）。
+- **signUp 创建的 email 渠道 `valid=1`**（修正旧行为 0=系统占位）。
+- **signIn 限流键**：`signIn:${ip}:email:${email}`（渠道化：ip:provider:providerOpenid）。
+- **authenticateChannel 密码登录**：不再经合成邮箱中转 signIn，
+  渠道反查用户后直接验证共享密码（含同构限流键）。
+- 密码策略默认最短 **8** 位（与 4.1.0 实际行为一致）。
+
+### 迁移
+
+- 运行 `pnpm migrate:v5`（或直接执行 bin/migrate-v5.mjs）完成数据搬移：
+  1. `account.password` → `user.password`
+  2. 真实邮箱用户补建 email 渠道记录（占位邮箱 `@oauth.usercenter` 跳过，
+     其渠道身份已在 socialAccount）
+  3. `DROP TABLE account`
+  4. `ALTER TABLE "user" DROP COLUMN email`
+- 先以 `--dry-run` 核对 SQL；执行前请备份数据库（要求 PostgreSQL 13+）。
+
 ## 4.1.0（未发布）
 
 > **安全加固与健壮性改进**。全部改动为新增式（新可选配置 /

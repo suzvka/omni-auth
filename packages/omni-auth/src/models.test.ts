@@ -1,6 +1,6 @@
 import { describe, it, expect, expectTypeOf } from "vitest";
 import { createDbFacade } from "./models";
-import type { UserRow, SocialAccountRow, AccountRow } from "./models";
+import type { UserRow, SocialAccountRow } from "./models";
 import type { DatabaseAdapter, WhereCondition } from "./adapters/database";
 
 // ----------------------------------------------------------
@@ -134,13 +134,13 @@ describe("createDbFacade（类型化表视图）", () => {
 
   it("user 视图：create / findOne / findMany / count 全链路", async () => {
     const created = await db.user.create({
-      data: { name: "张三", email: "a@b.c" },
+      data: { name: "张三", password: "hashed", updatedAt: new Date() },
     });
     expect(created.id).toBeDefined();
-    expect(created.email).toBe("a@b.c");
+    expect(created.password).toBe("hashed");
 
     const found = await db.user.findOne({
-      where: [{ field: "email", value: "a@b.c" }],
+      where: [{ field: "name", value: "张三" }],
     });
     expect(found?.name).toBe("张三");
 
@@ -153,7 +153,7 @@ describe("createDbFacade（类型化表视图）", () => {
 
   it("socialAccount 视图：更新 / 删除 / 返回行形状", async () => {
     await db.socialAccount.create({
-      data: { userId: "u1", provider: "wechat", providerOpenid: "openid-1" },
+      data: { userId: "u1", provider: "wechat", providerOpenid: "openid-1", updatedAt: new Date() },
     });
 
     const updated = await db.socialAccount.updateOne({
@@ -167,15 +167,6 @@ describe("createDbFacade（类型化表视图）", () => {
     });
     expect(deleted?.provider).toBe("wechat");
     expect(await db.socialAccount.count({})).toBe(0);
-  });
-
-  it("account 视图可用", async () => {
-    await db.account.create({
-      data: { userId: "u1", providerId: "credential", accountId: "u1" },
-    });
-    expect(
-      await db.account.findOne({ where: [{ field: "providerId", value: "credential" }] })
-    ).not.toBeNull();
   });
 
   it("弃用的泛型方法仍可委托", async () => {
@@ -200,13 +191,13 @@ describe("类型化表视图（编译期断言）", () => {
     });
     expectTypeOf(social).toEqualTypeOf<SocialAccountRow | null>();
 
-    expectTypeOf(await db.account.count({})).toEqualTypeOf<number>();
+    expectTypeOf(await db.socialAccount.count({})).toEqualTypeOf<number>();
 
-    const created = await db.account.create({
-      data: { userId: "u1", providerId: "credential", accountId: "u1" },
+    const created = await db.socialAccount.create({
+      data: { userId: "u1", provider: "wechat", providerOpenid: "wx-1", updatedAt: new Date() },
     });
-    expectTypeOf(created).toEqualTypeOf<AccountRow>();
-    expectTypeOf(created.providerId).toEqualTypeOf<string>();
+    expectTypeOf(created).toEqualTypeOf<SocialAccountRow>();
+    expectTypeOf(created.provider).toEqualTypeOf<string>();
   });
 
   it("未声明的列名在编译期报错（负向用例）", async () => {

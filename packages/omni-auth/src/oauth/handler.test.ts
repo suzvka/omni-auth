@@ -9,14 +9,9 @@ vi.mock("@better-auth/core/oauth2", () => ({
     validateAuthorizationCode: vi.fn(),
 }));
 
-vi.mock("@better-auth/utils/password", () => ({
-    hashPassword: vi.fn(),
-}));
-
 // ---- 在 mock 之后导入 ----
 
 import { createOAuthHandler } from "./handler";
-import { hashPassword } from "@better-auth/utils/password";
 import {
     createAuthorizationURL,
     validateAuthorizationCode,
@@ -117,8 +112,6 @@ describe("createOAuthHandler — 基础", () => {
     beforeEach(() => {
         db = createInMemoryDb();
         ctx = buildHandler(db);
-        vi.mocked(hashPassword).mockReset();
-        vi.mocked(hashPassword).mockResolvedValue("hashed_password_mock");
     });
 
     it("未注册的 provider 应抛出错误", async () => {
@@ -143,8 +136,6 @@ describe("createOAuthHandler — state 强制校验", () => {
             provider: "wechat",
             exchangeCode: async () => ({ openid: "oid_x", accessToken: "at" }),
         });
-        vi.mocked(hashPassword).mockReset();
-        vi.mocked(hashPassword).mockResolvedValue("hashed");
     });
 
     it("state 与 expectedState 不匹配时抛 OAuthStateMismatchError", async () => {
@@ -215,8 +206,6 @@ describe("createOAuthHandler — 已有绑定用户", () => {
     beforeEach(() => {
         db = createInMemoryDb();
         ctx = buildHandler(db);
-        vi.mocked(hashPassword).mockReset();
-        vi.mocked(hashPassword).mockResolvedValue("hashed_mock");
         vi.mocked(validateAuthorizationCode).mockReset();
     });
 
@@ -266,8 +255,7 @@ describe("createOAuthHandler — 已有绑定用户", () => {
             },
         });
 
-        // 不应创建 user / account 记录
-        expect(hashPassword).not.toHaveBeenCalled();
+        // 不应创建 user / account 记录（OAuth 登录仅审计）
         expect(ctx.mockSocialService.bindToUser).not.toHaveBeenCalled();
     });
 });
@@ -283,12 +271,10 @@ describe("createOAuthHandler — 新用户注册", () => {
     beforeEach(() => {
         db = createInMemoryDb();
         ctx = buildHandler(db);
-        vi.mocked(hashPassword).mockReset();
-        vi.mocked(hashPassword).mockResolvedValue("hashed_password_new");
         vi.mocked(validateAuthorizationCode).mockReset();
     });
 
-    it("新用户应自行创建 user+account+绑定+审计，返回 isNewUser=true（不创建会话令牌）", async () => {
+    it("新用户应自行创建 user+绑定+审计，返回 isNewUser=true（不创建会话令牌）", async () => {
         ctx.providers.set("google", {
             provider: "google",
             exchangeCode: async () => ({
@@ -326,8 +312,13 @@ describe("createOAuthHandler — 新用户注册", () => {
             allowPasswordUpdate: 0,
         });
 
-        // hashPassword 被调用（随机密码哈希）
-        expect(hashPassword).toHaveBeenCalledTimes(1);
+        // 5.0.0 渠道化：OAuth 新用户无密码（password=null，不生成随机密码）
+        const users = await db.findMany({
+            model: "user",
+            where: [],
+        }) as Record<string, unknown>[];
+        expect(users).toHaveLength(1);
+        expect(users[0].password).toBeNull();
 
         // 绑定社交账户（事务内）
         expect(ctx.mockSocialService.bindToUser).toHaveBeenCalledWith(
@@ -353,7 +344,7 @@ describe("createOAuthHandler — 新用户注册", () => {
         });
     });
 
-    it("平台不返回邮箱时使用占位邮箱（完整 openid，不截断）", async () => {
+    it("平台不返回邮箱时新用户无 email 字段（渠道身份 = provider+openid）", async () => {
         ctx.providers.set("wechat", {
             provider: "wechat",
             exchangeCode: async () => ({
@@ -372,16 +363,17 @@ describe("createOAuthHandler — 新用户注册", () => {
 
         await ctx.handler("wechat", "code", "http://localhost/callback", okState());
 
-        // 验证 user 创建时使用了占位邮箱（完整 openid，2.1.0 起不再截断）
+        // 5.0.0 渠道化：user 不再有 email 列，身份全部在 socialAccount
         const users = await db.findMany({
             model: "user",
             where: [],
         }) as Record<string, unknown>[];
         expect(users).toHaveLength(1);
-        expect(users[0].email).toBe("wechat_wx_test_user_1@oauth.usercenter");
+        expect(users[0]).not.toHaveProperty("email");
+        expect(users[0].password).toBeNull();
     });
 
-    it("平台返回邮箱时仍用占位邮箱，邮箱存入渠道资料（渠道模型：OAuth 身份 = provider+openid）", async () => {
+    it("平台返回邮箱时仅存入渠道资料，不充当用户标识（避免跨渠道邮箱碰撞）", async () => {
         ctx.providers.set("github", {
             provider: "github",
             exchangeCode: async () => ({
@@ -406,9 +398,9 @@ describe("createOAuthHandler — 新用户注册", () => {
             where: [],
         }) as Record<string, unknown>[];
         expect(users).toHaveLength(1);
-        expect(users[0].email).toBe("github_gh_with_email@oauth.usercenter");
+        expect(users[0]).not.toHaveProperty("email");
 
-        // provider 邮箱仅作渠道资料，不充当 user.email（避免跨渠道邮箱碰撞）
+        // provider 邮箱仅作渠道资料，入 profileData
         expect(ctx.mockSocialService.bindToUser).toHaveBeenCalledWith(
             expect.any(String),
             expect.objectContaining({
@@ -470,8 +462,6 @@ describe("createOAuthHandler — PKCE / state", () => {
     beforeEach(() => {
         db = createInMemoryDb();
         ctx = buildHandler(db);
-        vi.mocked(hashPassword).mockReset();
-        vi.mocked(hashPassword).mockResolvedValue("hashed_pkce");
         vi.mocked(validateAuthorizationCode).mockReset();
     });
 

@@ -21,33 +21,17 @@ import {
 } from "./schema-builder";
 
 // ----------------------------------------------------------
-// user 表
+// user 表（聚合身份 + 共享密码）
+//
+// 5.0.0 渠道化：email 列删除（邮箱降级为普通渠道，身份见
+// socialAccount），密码以共享语义存放于此（可空，OAuth-only
+// 用户无密码）；唯一身份锚点为 id + socialAccount(provider, providerOpenid)。
 // ----------------------------------------------------------
 
 export const user = table("user", {
   id: text().primaryKey(),
   name: text().notNull(),
-  email: text().notNull().unique(),
   image: text(),
-  createdAt: timestamptz().notNull().default("NOW()"),
-  updatedAt: timestamptz().notNull(),
-});
-
-// ----------------------------------------------------------
-// account 表（凭证账户，密码存放处）
-// ----------------------------------------------------------
-
-export const account = table("account", {
-  id: text().primaryKey(),
-  accountId: text().notNull(),
-  providerId: text().notNull(),
-  userId: text().notNull().references("user", { onDelete: "cascade" }),
-  accessToken: text(),
-  refreshToken: text(),
-  idToken: text(),
-  accessTokenExpiresAt: timestamptz(),
-  refreshTokenExpiresAt: timestamptz(),
-  scope: text(),
   password: text(),
   createdAt: timestamptz().notNull().default("NOW()"),
   updatedAt: timestamptz().notNull(),
@@ -85,7 +69,6 @@ export const socialAccount = table(
 
 export const schema = defineSchema({
   user,
-  account,
   socialAccount,
 });
 
@@ -94,10 +77,8 @@ export const schema = defineSchema({
 // ----------------------------------------------------------
 
 export type UserRow = InferSelect<typeof user>;
-export type AccountRow = InferSelect<typeof account>;
 export type SocialAccountRow = InferSelect<typeof socialAccount>;
 
 // INSERT 输入类型（NOT NULL 无默认值列必填）
 export type UserInsert = InferInsert<typeof user>;
-export type AccountInsert = InferInsert<typeof account>;
 export type SocialAccountInsert = InferInsert<typeof socialAccount>;

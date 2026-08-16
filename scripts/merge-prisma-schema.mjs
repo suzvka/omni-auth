@@ -6,11 +6,11 @@
 //
 // 输出 prisma/schema.prisma：
 //   1. generator + datasource
-//   2. omni-auth 认证三表（由 omni-auth schema.ts 单一事实源生成）
+//   2. omni-auth 认证两表（由 omni-auth schema.ts 单一事实源生成）
 //   3. app 自定义表（BusinessAccount 等，在此脚本中维护）
 //
 // 表结构修改流程：
-//   - SDK 表（user/account/socialAccount）：改 packages/omni-auth/src/schema.ts
+//   - SDK 表（user/socialAccount）：改 packages/omni-auth/src/schema.ts
 //   - app 表（BusinessAccount 等）：改本脚本的 appModels
 //   - 然后运行 pnpm update:prisma && pnpm exec prisma generate
 // ============================================================
@@ -83,4 +83,4 @@ ${appModels}`;
 
 writeFileSync(join(root, "prisma", "schema.prisma"), full, "utf-8");
 console.log("✅ prisma/schema.prisma 已更新");
-console.log("   表: user / account / socialAccount（omni-auth 生成）+ businessAccount（app）");
+console.log("   表: user / socialAccount（omni-auth 生成）+ businessAccount（app）");

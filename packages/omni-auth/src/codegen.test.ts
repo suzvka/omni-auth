@@ -8,16 +8,16 @@ import { schema } from "./schema";
 // ----------------------------------------------------------
 
 describe("generateDDL（SQL DDL 生成）", () => {
-  it("包含全部三张表的 CREATE TABLE IF NOT EXISTS", () => {
+  it("包含全部两张表的 CREATE TABLE IF NOT EXISTS", () => {
     const ddl = generateDDL(schema);
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "user"');
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "account"');
+    expect(ddl).not.toContain('CREATE TABLE IF NOT EXISTS "account"');
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "socialAccount"');
   });
 
   it("user 表列定义正确（类型/非空/默认值/主键）", () => {
     const ddl = generateDDL(schema);
-    expect(ddl).toContain('"email" TEXT NOT NULL');
+    expect(ddl).toContain('"password" TEXT');
     expect(ddl).toContain('"createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()');
     expect(ddl).toContain('PRIMARY KEY ("id")');
   });
@@ -29,11 +29,9 @@ describe("generateDDL（SQL DDL 生成）", () => {
     );
   });
 
-  it("user 的 email 生成单列唯一索引", () => {
+  it("user 不再生成 email 唯一索引（邮箱锚点已移除）", () => {
     const ddl = generateDDL(schema);
-    expect(ddl).toContain(
-      'CREATE UNIQUE INDEX IF NOT EXISTS "user_email_key" ON "user" ("email")'
-    );
+    expect(ddl).not.toContain('"user_email_key"');
   });
 
   it("不包含已迁出的 businessAccount 表", () => {
@@ -50,7 +48,6 @@ describe("schema 与类型联动", () => {
   it("DDL 中的表与 schema 对象一一对应", () => {
     const tables = Object.values(schema);
     expect(tables.map((t) => t.name).sort()).toEqual([
-      "account",
       "socialAccount",
       "user",
     ]);
@@ -58,7 +55,7 @@ describe("schema 与类型联动", () => {
 
   it("schema 表名与 typed 门面 model 名一致", () => {
     // typed 门面的 model 名（ModelName）应能覆盖全部 schema 表
-    const modelNames = ["user", "account", "socialAccount"];
+    const modelNames = ["user", "socialAccount"];
     expect(Object.keys(schema).sort()).toEqual(modelNames.sort());
   });
 });
@@ -74,7 +71,7 @@ describe("generatePrismaSchema（Prisma schema 生成）", () => {
     expect(prisma).toContain('provider = "postgresql"');
     expect(prisma).toContain('url      = env("DATABASE_URL")');
     expect(prisma).toContain("model User {");
-    expect(prisma).toContain("model Account {");
+    expect(prisma).not.toContain("model Account {");
     expect(prisma).toContain("model SocialAccount {");
   });
 
@@ -83,7 +80,7 @@ describe("generatePrismaSchema（Prisma schema 生成）", () => {
     expect(prisma).toContain("model User {");
     expect(prisma).toContain("  id String @id @default(cuid())");
     expect(prisma).toContain("  name String");
-    expect(prisma).toContain("  email String @unique");
+    expect(prisma).toContain("  password String?");
     expect(prisma).toContain("  image String?");
     expect(prisma).toContain("  createdAt DateTime @default(now())");
     expect(prisma).toContain("  updatedAt DateTime @updatedAt");
@@ -92,18 +89,18 @@ describe("generatePrismaSchema（Prisma schema 生成）", () => {
   it("表名通过 @@map 与 schema.ts 的小写表名保持一致", () => {
     const prisma = generatePrismaModels(schema);
     expect(prisma).toContain('  @@map("user")');
-    expect(prisma).toContain('  @@map("account")');
+    expect(prisma).not.toContain('  @@map("account")');
     expect(prisma).toContain('  @@map("socialAccount")');
   });
 
-  it("关系字段生成（Account → User + User 反向）", () => {
+  it("关系字段生成（SocialAccount → User + User 反向）", () => {
     const prisma = generatePrismaModels(schema);
-    // Account.userId 引用 User
+    // SocialAccount.userId 引用 User
     expect(prisma).toContain(
       "  user User @relation(fields: [userId], references: [id], onDelete: Cascade)"
     );
-    // User 反向持有 account / socialAccount 列表
-    expect(prisma).toContain("  account Account[]");
+    // User 反向持有 socialAccount 列表（account 表已删除）
+    expect(prisma).not.toContain("  account Account[]");
     expect(prisma).toContain("  socialAccount SocialAccount[]");
   });
 

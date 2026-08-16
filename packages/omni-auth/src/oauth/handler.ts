@@ -19,16 +19,11 @@ import type { DatabaseAdapter } from "../adapters/database";
 import { withTransaction } from "../adapters/database";
 import type { OAuthCallbackResult, OAuthProviderConfig } from "./types";
 import type { AuditEvent } from "../core/audit";
-import { hashPassword } from "@better-auth/utils/password";
 import {
     OAuthStateMismatchError,
     UniqueViolationError,
     SocialAccountConflictError,
 } from "../errors";
-import {
-    buildPlaceholderEmail,
-    generateRandomPassword,
-} from "../core/channel-mapping";
 import { createDbFacade } from "../models";
 
 // ---- 类型 ----
@@ -309,12 +304,10 @@ export function createOAuthHandler(deps: {
 
         // ---- 3. 新建用户 + 绑定社交账户（事务，原子提交） ----
 
-        // 渠道模型：OAuth 身份 = provider + openid，provider 邮箱仅作渠道资料，
-        // 不充当 user.email（避免不同渠道用户邮箱碰撞触发唯一约束冲突）
-        const email = buildPlaceholderEmail(provider, exchanged.openid);
+        // 渠道模型：OAuth 身份 = provider + openid，provider 邮箱仅作渠道资料
+        // （入 profileData），不充当用户标识；新用户无密码（password=null），
+        // 后续可通过渠道验证码重置 / 设置密码。
         const name = exchanged.name ?? `${provider}_用户`;
-        const password = generateRandomPassword();
-        const passwordHash = await hashPassword(password);
         const userId = randomUUID();
 
         let bindResult: {
@@ -328,25 +321,12 @@ export function createOAuthHandler(deps: {
                 const dbf = createDbFacade(tx);
                 const now = new Date();
 
-                // 创建 user 记录
+                // 创建 user 记录（共享密码可空：OAuth-only 用户无密码）
                 await dbf.user.create({
                     data: {
                         id: userId,
-                        email,
                         name,
-                        createdAt: now,
-                        updatedAt: now,
-                    },
-                });
-
-                // 创建 credential account 记录（存储密码哈希）
-                await dbf.account.create({
-                    data: {
-                        id: randomUUID(),
-                        accountId: email,
-                        providerId: "credential",
-                        userId,
-                        password: passwordHash,
+                        password: null,
                         createdAt: now,
                         updatedAt: now,
                     },
@@ -369,7 +349,7 @@ export function createOAuthHandler(deps: {
             });
         } catch (err) {
             if (err instanceof UniqueViolationError) {
-                // 占位邮箱 / 渠道并发注册等唯一约束冲突
+                // 渠道并发注册等唯一约束冲突
                 throw new SocialAccountConflictError(provider, exchanged.openid);
             }
             throw err;

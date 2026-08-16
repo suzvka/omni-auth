@@ -20,31 +20,12 @@ model User {
   businessAccount BusinessAccount?
   id String @id @default(cuid())
   name String
-  email String @unique
   image String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  account Account[]
-  socialAccount SocialAccount[]
-  @@map("user")
-}
-
-model Account {
-  id String @id @default(cuid())
-  accountId String
-  providerId String
-  userId String
-  accessToken String?
-  refreshToken String?
-  idToken String?
-  accessTokenExpiresAt DateTime?
-  refreshTokenExpiresAt DateTime?
-  scope String?
   password String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@map("account")
+  socialAccount SocialAccount[]
+  @@map("user")
 }
 
 model SocialAccount {

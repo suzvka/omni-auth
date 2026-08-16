@@ -18,7 +18,6 @@ export default function TestPage() {
     const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
     // 社交注册测试表单
-    const [socialEmail, setSocialEmail] = useState("");
     const [socialPassword, setSocialPassword] = useState("");
     const [socialName, setSocialName] = useState("");
     const [socialProvider, setSocialProvider] = useState("wechat");
@@ -101,16 +100,15 @@ export default function TestPage() {
     async function handleSocialSignup(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         setLoadingAction("social-signup");
-        addLog("info", `社交注册测试: ${socialProvider} - ${socialEmail}`);
+        addLog("info", `社交注册测试: ${socialProvider}`);
 
         try {
             const res = await fetch("/api/auth/social-signup", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    email: socialEmail,
                     password: socialPassword,
-                    name: socialName || socialEmail.split("@")[0],
+                    name: socialName || "渠道用户",
                     social: {
                         provider: socialProvider,
                         providerOpenid: socialOpenid,
@@ -198,18 +196,9 @@ export default function TestPage() {
                                     required
                                 />
                                 <input
-                                    name="socialEmail"
-                                    type="email"
-                                    placeholder="邮箱"
-                                    value={socialEmail}
-                                    onChange={(e) => setSocialEmail(e.target.value)}
-                                    className="w-full rounded border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                                    required
-                                />
-                                <input
                                     name="socialPassword"
                                     type="password"
-                                    placeholder="密码（至少6位）"
+                                    placeholder="密码（至少8位）"
                                     value={socialPassword}
                                     onChange={(e) => setSocialPassword(e.target.value)}
                                     className="w-full rounded border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"

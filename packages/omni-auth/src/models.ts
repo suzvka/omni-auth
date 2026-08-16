@@ -21,15 +21,13 @@ import type {
 } from "./adapters/database";
 import type {
   UserRow,
-  AccountRow,
   SocialAccountRow,
   UserInsert,
-  AccountInsert,
   SocialAccountInsert,
 } from "./schema";
 
 // Re-export 行类型（保持 index.ts 导入路径不变）
-export type { UserRow, AccountRow, SocialAccountRow };
+export type { UserRow, SocialAccountRow };
 
 // ----------------------------------------------------------
 // ModelMap：表名 → 行类型
@@ -38,7 +36,6 @@ export type { UserRow, AccountRow, SocialAccountRow };
 /** model 名 → 行类型 映射 */
 export interface ModelMap {
   user: UserRow;
-  account: AccountRow;
   socialAccount: SocialAccountRow;
 }
 
@@ -48,7 +45,6 @@ export type ModelName = keyof ModelMap;
 /** model 名 → INSERT 输入类型 映射 */
 export interface InsertMap {
   user: UserInsert;
-  account: AccountInsert;
   socialAccount: SocialAccountInsert;
 }
 
@@ -112,17 +108,16 @@ export interface ModelView<Row, Insert> {
 export interface DbFacade {
   // ---- 类型化表视图（推荐） ----
   user: ModelView<UserRow, UserInsert>;
-  account: ModelView<AccountRow, AccountInsert>;
   socialAccount: ModelView<SocialAccountRow, SocialAccountInsert>;
 
   // ---- 泛型方法（已弃用） ----
 
-  /** @deprecated 使用表视图 db.user.* / db.account.* 等，获得编译期表名与列名校验 */
+  /** @deprecated 使用表视图 db.user.* / db.socialAccount.* 等，获得编译期表名与列名校验 */
   findOne(params: {
     model: string;
     where: WhereCondition[];
   }): Promise<unknown | null>;
-  /** @deprecated 使用表视图 db.user.* / db.account.* 等，获得编译期表名与列名校验 */
+  /** @deprecated 使用表视图 db.user.* / db.socialAccount.* 等，获得编译期表名与列名校验 */
   findMany(params: {
     model: string;
     where?: WhereCondition[];
@@ -131,34 +126,34 @@ export interface DbFacade {
     limit?: number;
     offset?: number;
   }): Promise<unknown[]>;
-  /** @deprecated 使用表视图 db.user.* / db.account.* 等，获得编译期表名与列名校验 */
+  /** @deprecated 使用表视图 db.user.* / db.socialAccount.* 等，获得编译期表名与列名校验 */
   create(params: {
     model: string;
     data: Record<string, unknown>;
   }): Promise<unknown>;
-  /** @deprecated 使用表视图 db.user.* / db.account.* 等，获得编译期表名与列名校验 */
+  /** @deprecated 使用表视图 db.user.* / db.socialAccount.* 等，获得编译期表名与列名校验 */
   updateOne(params: {
     model: string;
     where: WhereCondition[];
     update: Record<string, unknown>;
   }): Promise<unknown>;
-  /** @deprecated 使用表视图 db.user.* / db.account.* 等，获得编译期表名与列名校验 */
+  /** @deprecated 使用表视图 db.user.* / db.socialAccount.* 等，获得编译期表名与列名校验 */
   updateMany(params: {
     model: string;
     where: WhereCondition[];
     update: Record<string, unknown>;
   }): Promise<number>;
-  /** @deprecated 使用表视图 db.user.* / db.account.* 等，获得编译期表名与列名校验 */
+  /** @deprecated 使用表视图 db.user.* / db.socialAccount.* 等，获得编译期表名与列名校验 */
   deleteOne(params: {
     model: string;
     where: WhereCondition[];
   }): Promise<unknown>;
-  /** @deprecated 使用表视图 db.user.* / db.account.* 等，获得编译期表名与列名校验 */
+  /** @deprecated 使用表视图 db.user.* / db.socialAccount.* 等，获得编译期表名与列名校验 */
   deleteMany(params: {
     model: string;
     where: WhereCondition[];
   }): Promise<number>;
-  /** @deprecated 使用表视图 db.user.* / db.account.* 等，获得编译期表名与列名校验 */
+  /** @deprecated 使用表视图 db.user.* / db.socialAccount.* 等，获得编译期表名与列名校验 */
   count(params: {
     model: string;
     where?: WhereCondition[];
@@ -209,7 +204,6 @@ export function createModelView<M extends ModelName>(
 export function createDbFacade(adapter: DatabaseAdapter): DbFacade {
   return {
     user: createModelView(adapter, "user"),
-    account: createModelView(adapter, "account"),
     socialAccount: createModelView(adapter, "socialAccount"),
 
     findOne: (params) => adapter.findOne(params),

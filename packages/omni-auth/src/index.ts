@@ -16,7 +16,6 @@ export type {
   SignInResult,
   ChannelAuthInput,
   ChannelAuthResult,
-  SignUpWithSocialInput,
 } from "./auth";
 
 /** @deprecated 0.6.0 起更名为 OmniAuthConfig，此别名仅作过渡，后续版本将移除 */
@@ -49,7 +48,6 @@ export type { ClientIpOptions } from "./adapters/request";
 // 类型化数据访问（typed 门面）
 export type {
   UserRow,
-  AccountRow,
   SocialAccountRow,
   ModelMap,
   ModelName,
@@ -81,9 +79,9 @@ export type {
   InferInsert,
 } from "./schema-builder";
 
-// Schema 定义（认证三表 + 派生类型）
-export { schema, user, account, socialAccount } from "./schema";
-export type { UserInsert, AccountInsert, SocialAccountInsert } from "./schema";
+// Schema 定义（认证两表 + 派生类型）
+export { schema, user, socialAccount } from "./schema";
+export type { UserInsert, SocialAccountInsert } from "./schema";
 
 // Codegen（DDL + Prisma schema 生成）
 export { generateDDL } from "./codegen-ddl";
@@ -144,13 +142,6 @@ export { extractAuditContext } from "./core/audit";
 
 // CSRF 同源校验
 export { isSameOrigin, createOriginCheck } from "./core/origin";
-
-// 占位邮箱工具
-export {
-  generateRandomPassword,
-  buildPlaceholderEmail,
-  PLACEHOLDER_EMAIL_DOMAIN,
-} from "./core/channel-mapping";
 
 // 实例注册表
 export type { OmniRegistry } from "./registry";
