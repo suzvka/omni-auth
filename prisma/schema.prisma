@@ -17,7 +17,6 @@ datasource db {
 // ============================================================
 
 model User {
-  businessAccount BusinessAccount?
   id String @id @default(cuid())
   name String
   image String?
@@ -45,19 +44,4 @@ model SocialAccount {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([provider, providerOpenid])
   @@map("socialAccount")
-}
-
-
-// ============================================================
-// app 自定义表
-// ============================================================
-
-model BusinessAccount {
-  id          String   @id @default(cuid())
-  authUserId  String   @unique
-  user        User     @relation(fields: [authUserId], references: [id], onDelete: Cascade)
-  displayName String
-  status      String   @default("active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 }
