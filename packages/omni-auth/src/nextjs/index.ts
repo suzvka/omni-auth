@@ -7,12 +7,22 @@ import { PgAdapter } from "../builtin/pg/adapter";
 import type { PgPoolLike } from "../builtin/pg/adapter";
 import type { DatabaseAdapter } from "../adapters/database";
 import type { LifecycleHooks } from "../core/lifecycle";
+import type { TokenAuthorityClient } from "../oauth/server";
+import { syncSchema } from "../schema-sync";
 
 // ============================================================
 // 统一导出：所有常用类型只需从 omni-auth/nextjs 导入
 // ============================================================
 
 export { createRequestContext };
+
+// 会话 cookie 辅助（认证域私有）
+export {
+  setSessionCookie,
+  clearSessionCookie,
+  getSessionTokenFromCookies,
+  SESSION_COOKIE,
+} from "./session";
 
 // 核心类型
 export type { PublicUser } from "../types";
@@ -79,6 +89,24 @@ export interface QuickAuthConfig {
    */
   database: DatabaseAdapter | PoolDbConfig;
   /**
+   * 自动建表/迁移（默认 true）。
+   *
+   * pool 注入模式下，初始化时自动执行 schema 同步（幂等，
+   * 建表/补列/驼峰列名修复）；false 时仅检查缺表并警告。
+   * 环境变量 AUTO_SYNC_DB=false 可整体关闭（显式设置优先）。
+   */
+  autoSync?: boolean;
+  /**
+   * 目标库连接串（可选）。提供时自动建表前先执行库 bootstrap
+   * （连 postgres 默认库检查/创建目标库）；缺省跳过 bootstrap。
+   */
+  databaseUrl?: string;
+  /**
+   * 令牌权威服务客户端（可选）。注入后 auth.oauthServer 的
+   * access token 签发/校验/吊销能力可用（委托外部证书服务）。
+   */
+  tokenAuthority?: TokenAuthorityClient;
+  /**
    * 密钥（可选）。
    *
    * 当前版本库内无消费方，为后续会话/令牌签名能力预留。
@@ -121,12 +149,39 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
   if (isPoolDbConfig(config.database)) {
     // 注入式配置：基于宿主提供的连接池
     database = PgAdapter({ pool: config.database.pool });
+
+    // === 自动建表/迁移（幂等，认证域表结构由包内 schema 单一管理） ===
+    // AUTO_SYNC_DB=false 整体关闭；显式 autoSync 优先于环境变量；
+    // Next.js 构建期（page data 收集）跳过，避免构建环境无 DB 凭证时阻断
+    const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+    const envAutoSync = process.env.AUTO_SYNC_DB !== "false";
+    const autoSync = config.autoSync ?? envAutoSync;
+    if (!isBuildPhase) {
+      void syncSchema(config.database.pool, {
+        databaseUrl: config.databaseUrl,
+        autoSync,
+      })
+        .then((result) => {
+          if (!result.synced && result.missingTables.length > 0) {
+            console.warn(
+              `[omni-auth] 缺少表: ${result.missingTables.join(", ")}。` +
+                `请运行 npx omni-auth db:push 或设置 AUTO_SYNC_DB=true。`
+            );
+          }
+        })
+        .catch((err) => {
+          console.error(
+            `[omni-auth] Schema 同步失败: ${err instanceof Error ? err.message : String(err)}`
+          );
+        });
+    }
   } else {
     database = config.database;
   }
 
   return createAuth({
     database,
+    tokenAuthority: config.tokenAuthority,
     secret: config.secret,
     baseUrl: config.baseUrl,
     hooks: config.hooks,

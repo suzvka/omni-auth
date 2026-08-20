@@ -22,12 +22,24 @@ import type {
 import type {
   UserRow,
   SocialAccountRow,
+  SessionRow,
+  OAuthTokenRow,
+  OAuthClientRow,
   UserInsert,
   SocialAccountInsert,
+  SessionInsert,
+  OAuthTokenInsert,
+  OAuthClientInsert,
 } from "./schema";
 
 // Re-export 行类型（保持 index.ts 导入路径不变）
-export type { UserRow, SocialAccountRow };
+export type {
+  UserRow,
+  SocialAccountRow,
+  SessionRow,
+  OAuthTokenRow,
+  OAuthClientRow,
+};
 
 // ----------------------------------------------------------
 // ModelMap：表名 → 行类型
@@ -37,6 +49,9 @@ export type { UserRow, SocialAccountRow };
 export interface ModelMap {
   user: UserRow;
   socialAccount: SocialAccountRow;
+  session: SessionRow;
+  oauthToken: OAuthTokenRow;
+  oauthClient: OAuthClientRow;
 }
 
 /** 合法的表名（字面量联合） */
@@ -46,6 +61,9 @@ export type ModelName = keyof ModelMap;
 export interface InsertMap {
   user: UserInsert;
   socialAccount: SocialAccountInsert;
+  session: SessionInsert;
+  oauthToken: OAuthTokenInsert;
+  oauthClient: OAuthClientInsert;
 }
 
 /** 表视图的查询条件：field 限定为该表的列名 */
@@ -109,6 +127,12 @@ export interface DbFacade {
   // ---- 类型化表视图（推荐） ----
   user: ModelView<UserRow, UserInsert>;
   socialAccount: ModelView<SocialAccountRow, SocialAccountInsert>;
+  /** 会话表（认证域私有；宿主请使用 auth.sessions.* 语义 API） */
+  session: ModelView<SessionRow, SessionInsert>;
+  /** OAuth 令牌表（认证域私有；宿主请使用 auth.oauth.* 语义 API） */
+  oauthToken: ModelView<OAuthTokenRow, OAuthTokenInsert>;
+  /** OAuth 客户端表（认证域私有；宿主请使用 auth.oauth.* 语义 API） */
+  oauthClient: ModelView<OAuthClientRow, OAuthClientInsert>;
 
   // ---- 泛型方法（已弃用） ----
 
@@ -205,6 +229,9 @@ export function createDbFacade(adapter: DatabaseAdapter): DbFacade {
   return {
     user: createModelView(adapter, "user"),
     socialAccount: createModelView(adapter, "socialAccount"),
+    session: createModelView(adapter, "session"),
+    oauthToken: createModelView(adapter, "oauthToken"),
+    oauthClient: createModelView(adapter, "oauthClient"),
 
     findOne: (params) => adapter.findOne(params),
     findMany: (params) => adapter.findMany(params),

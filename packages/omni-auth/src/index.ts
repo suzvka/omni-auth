@@ -49,6 +49,9 @@ export type { ClientIpOptions } from "./adapters/request";
 export type {
   UserRow,
   SocialAccountRow,
+  SessionRow,
+  OAuthTokenRow,
+  OAuthClientRow,
   ModelMap,
   ModelName,
   ModelWhere,
@@ -56,6 +59,76 @@ export type {
   ModelCreateData,
   DbFacade,
 } from "./models";
+
+// Schema 同步（自动建表/迁移，认证域私有）
+export { syncSchema } from "./schema-sync";
+export type { SyncSchemaOptions, SyncSchemaResult } from "./schema-sync";
+
+// 会话服务（认证域私有）
+export { SESSION_TTL_MS, normalizeUserFlag } from "./core/session";
+export type { SessionService, SessionRecord } from "./core/session";
+
+// 用户管理（认证域私有）
+export { normalizeEmail } from "./core/user-admin";
+export type {
+  UserAdminService,
+  CreateUserParams,
+  UpdateUserParams,
+  UserView,
+  UserListItem,
+  ListUsersParams,
+} from "./core/user-admin";
+
+// OAuth Server（认证域私有）
+export {
+  OAuthError,
+  invalidGrant,
+  invalidClient,
+  invalidRequest,
+  unsupportedGrantType,
+  invalidScope,
+  SUPPORTED_SCOPES,
+  DEFAULT_SCOPE,
+  parseScope,
+  negotiateScope,
+  hasScope,
+  verifyPKCE,
+  generateCodeChallenge,
+} from "./oauth/server";
+export type {
+  OAuthServerService,
+  TokenAuthorityClient,
+  TokenIssueResult,
+  TokenIntrospectResult,
+  OAuthClientListParams,
+} from "./oauth/server";
+
+// SCIM（认证域私有）
+export { createScimUserHandler } from "./scim/handler";
+export type { ScimUserHandler } from "./scim/handler";
+export { USER_SCHEMA_ID, userSchema, allSchemas, getSchemaById } from "./scim/schemas";
+export {
+  ScimError,
+  notFound,
+  invalidValue,
+  invalidSyntax,
+  unauthorized,
+  conflict,
+  internalError,
+  parsePagination,
+  buildListResponse,
+  parseFilter,
+} from "./scim/types";
+export type {
+  ScimUser,
+  ScimListResponse,
+  ScimErrorResponse,
+  ScimCreateUserRequest,
+  ScimPatchRequest,
+  ScimPatchOperation,
+  ScimServiceProviderConfig,
+  PaginationParams,
+} from "./scim/types";
 
 // Schema DSL（单一事实源：表结构定义）
 export {
@@ -79,9 +152,15 @@ export type {
   InferInsert,
 } from "./schema-builder";
 
-// Schema 定义（认证两表 + 派生类型）
-export { schema, user, socialAccount } from "./schema";
-export type { UserInsert, SocialAccountInsert } from "./schema";
+// Schema 定义（认证表 + 派生类型）
+export { schema, user, socialAccount, session, oauthToken, oauthClient } from "./schema";
+export type {
+  UserInsert,
+  SocialAccountInsert,
+  SessionInsert,
+  OAuthTokenInsert,
+  OAuthClientInsert,
+} from "./schema";
 
 // Codegen（DDL + Prisma schema 生成）
 export { generateDDL } from "./codegen-ddl";

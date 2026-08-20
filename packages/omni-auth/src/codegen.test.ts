@@ -8,11 +8,14 @@ import { schema } from "./schema";
 // ----------------------------------------------------------
 
 describe("generateDDL（SQL DDL 生成）", () => {
-  it("包含全部两张表的 CREATE TABLE IF NOT EXISTS", () => {
+  it("包含全部认证域表的 CREATE TABLE IF NOT EXISTS", () => {
     const ddl = generateDDL(schema);
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "user"');
     expect(ddl).not.toContain('CREATE TABLE IF NOT EXISTS "account"');
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "socialAccount"');
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "session"');
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "oauth_token"');
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "oauth_client"');
   });
 
   it("user 表列定义正确（类型/非空/默认值/主键）", () => {
@@ -48,6 +51,9 @@ describe("schema 与类型联动", () => {
   it("DDL 中的表与 schema 对象一一对应", () => {
     const tables = Object.values(schema);
     expect(tables.map((t) => t.name).sort()).toEqual([
+      "oauth_client",
+      "oauth_token",
+      "session",
       "socialAccount",
       "user",
     ]);
@@ -55,7 +61,7 @@ describe("schema 与类型联动", () => {
 
   it("schema 表名与 typed 门面 model 名一致", () => {
     // typed 门面的 model 名（ModelName）应能覆盖全部 schema 表
-    const modelNames = ["user", "socialAccount"];
+    const modelNames = ["user", "socialAccount", "session", "oauthToken", "oauthClient"];
     expect(Object.keys(schema).sort()).toEqual(modelNames.sort());
   });
 });

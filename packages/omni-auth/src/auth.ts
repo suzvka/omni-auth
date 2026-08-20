@@ -30,6 +30,14 @@ import { dispatchAuditEvent, type AuditEvent, type AuditHandler } from "./core/a
 import { createChannelVerification } from "./core/verification-channel";
 import type { VerificationSender, VerificationVerifier } from "./core/verification-channel";
 import { createDbFacade, type DbFacade } from "./models";
+import { createSessionService, type SessionService } from "./core/session";
+import { createUserAdmin, type UserAdminService } from "./core/user-admin";
+import {
+  createOAuthServer,
+  type OAuthServerService,
+  type TokenAuthorityClient,
+} from "./oauth/server";
+import { createScimUserHandler, type ScimUserHandler } from "./scim/handler";
 import {
   createMemoryRateLimiter,
   checkRateLimit,
@@ -88,11 +96,12 @@ export interface OmniAuthConfig {
   /** 数据库适配器（必填） */
   database: DatabaseAdapter;
   /**
-   * 密钥（可选）。
-   *
-   * 当前版本库内无消费方，为后续会话/令牌签名能力预留；
-   * 传入不会报错，仅作保留。
+   * 令牌权威服务客户端（可选）。
+   * 提供后 auth.oauthServer 的 access token 签发/校验/吊销能力可用
+   * （委托外部证书服务，如集群的 yunzone_auth）。
    */
+  tokenAuthority?: TokenAuthorityClient;
+  /** 密钥（可选）。 */
   secret?: string;
   /** 应用基础 URL（CSRF 同源校验等使用） */
   baseUrl: string;
@@ -215,6 +224,29 @@ const DEFAULT_SIGN_IN_LIMIT = { maxAttempts: 5, windowMs: 15 * 60 * 1000 };
 const DEFAULT_SIGN_UP_LIMIT = { maxAttempts: 3, windowMs: 60 * 60 * 1000 };
 const DEFAULT_RESET_LIMIT = { maxAttempts: 3, windowMs: 10 * 60 * 1000 };
 
+/** 未注入 TokenAuthorityClient 时的占位实现（access token 能力不可用时给出明确错误） */
+function missingTokenAuthority(): TokenAuthorityClient {
+  const err = () => {
+    throw new OmniAuthError(
+      "TOKEN_AUTHORITY_NOT_CONFIGURED",
+      "未注入 TokenAuthorityClient：auth.oauthServer 的 access token 签发/校验能力不可用。" +
+        "请在 createQuickAuth({ tokenAuthority }) 或 createAuth({ tokenAuthority }) 中注入。"
+    );
+  };
+  return {
+    issueCertificate: err,
+    introspectCertificate: err,
+    refreshCertificate: err,
+    revokeCertificate: err,
+    getDefaultProductId: () => {
+      throw new OmniAuthError(
+        "TOKEN_AUTHORITY_NOT_CONFIGURED",
+        "未注入 TokenAuthorityClient：无法获取默认产品标识。"
+      );
+    },
+  };
+}
+
 // ----------------------------------------------------------
 // OmniAuth 主类
 // ----------------------------------------------------------
@@ -229,6 +261,14 @@ export class OmniAuth {
   private _channelVerification: ReturnType<typeof createChannelVerification>;
   /** 类型化数据访问门面（惰性缓存） */
   private _dbFacade: DbFacade | null = null;
+  /** 会话服务（认证域私有表 session） */
+  private _sessions: SessionService;
+  /** OAuth Server 服务（oauth_token / oauth_client 私有表） */
+  private _oauthServer: OAuthServerService;
+  /** 用户管理服务 */
+  private _userAdmin: UserAdminService;
+  /** SCIM 用户目录 handler */
+  private _scim: ScimUserHandler;
   /** 速率限制器（默认内存实现，可经 config.rateLimit.limiter 注入） */
   private _rateLimiter: RateLimiter;
   /** 客户端 IP 解析函数（默认 getClientIp，可经 config.rateLimit.getClientIp 注入） */
@@ -287,6 +327,27 @@ export class OmniAuth {
     this._passwordReset = createPasswordReset({
       db: config.database,
       channelVerification: this._channelVerification,
+    });
+
+    // ----------------------------------------------------------
+    // 认证域服务（会话 / OAuth Server / 用户管理 / SCIM）
+    // 表结构由包内 schema 单一管理，宿主仅消费语义 API
+    // ----------------------------------------------------------
+
+    this._sessions = createSessionService(config.database);
+
+    this._oauthServer = createOAuthServer(
+      config.database,
+      config.tokenAuthority ?? missingTokenAuthority()
+    );
+
+    this._userAdmin = createUserAdmin(config.database, this._sessions);
+
+    this._scim = createScimUserHandler({
+      db: config.database,
+      users: this._userAdmin,
+      oauth: this._oauthServer,
+      sessions: this._sessions,
     });
 
     // ----------------------------------------------------------
@@ -920,6 +981,47 @@ export class OmniAuth {
 
   get social() {
     return this._socialService;
+  }
+
+  // ----------------------------------------------------------
+  // 会话（认证域私有）
+  // ----------------------------------------------------------
+
+  /** 会话管理（创建 / 校验 / 销毁；宿主 cookie 处理见 omni-auth/nextjs） */
+  get sessions(): SessionService {
+    return this._sessions;
+  }
+
+  // ----------------------------------------------------------
+  // OAuth Server（认证域私有）
+  // ----------------------------------------------------------
+
+  /**
+   * OAuth 2.0 Server 能力（授权码 / 令牌 / 客户端凭证管理）。
+   *
+   * 注意：auth.oauth 是外部 OAuth provider 登录 handler（Google/GitHub/WeChat），
+   * 本命名空间是面向宿主应用的 OAuth server，勿混淆。
+   */
+  get oauthServer(): OAuthServerService {
+    return this._oauthServer;
+  }
+
+  // ----------------------------------------------------------
+  // 用户管理（认证域私有）
+  // ----------------------------------------------------------
+
+  /** 用户管理（创建 / 更新 / 查询 / 级联删除；含 emailVerified/active 元数据） */
+  get users(): UserAdminService {
+    return this._userAdmin;
+  }
+
+  // ----------------------------------------------------------
+  // SCIM（认证域私有）
+  // ----------------------------------------------------------
+
+  /** SCIM 2.0 用户目录（协议翻译 + CRUD，宿主 route 薄壳接入） */
+  get scim(): ScimUserHandler {
+    return this._scim;
   }
 
   // ----------------------------------------------------------
