@@ -7,6 +7,21 @@
 > 认证域与宿主业务域共享同一连接池。`{ url, ssl }` 声明式形态已删除。
 > 连接池类型为最小结构接口 `PgPoolLike`，与宿主所用 pg 类型版本解耦（零依赖 kit）。
 
+### 移除（公开 API）
+
+- **`UniqueViolationError` 类删除**：数据库唯一约束冲突（pg 23505）改由适配器转译为
+  `code=UNIQUE_VIOLATION` 的 `OmniAuthError` 抛出，新增 `isUniqueViolation(err)` 守卫判断。
+  原因：该类是内部信号（仅 4 处业务转译点消费）却误入公共 API，且与宿主基础设施
+  （yunzone-service-kit）的同名错误类形成"同名不同类型"陷阱；删除后跨抽象判断统一按
+  `err.code`（两族 code 值域已对齐为 `UNIQUE_VIOLATION`）。消费方迁移：
+  `err instanceof UniqueViolationError` → `isUniqueViolation(err)`。
+
+### 契约声明
+
+- **事务边界**：`PgAdapter.transaction` 文档显式声明——SDK 事务与宿主事务
+  （如 yunzone-service-kit `withTransaction`）互相不可见，宿主应在自身事务外调用
+  SDK 写操作，否则其写入会静默逃逸宿主事务。
+
 ## 5.0.0（npm 已发布旧版；本仓库源码为渠道化重构，随 5.1.0 发布）
 
 > **渠道化重构：两表模型（user + socialAccount）**。删除 account 表与

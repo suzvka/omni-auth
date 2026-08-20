@@ -84,10 +84,13 @@ export class OAuthStateMismatchError extends OmniAuthError {
   }
 }
 
-/** 数据库唯一约束冲突（由适配器转译） */
-export class UniqueViolationError extends OmniAuthError {
-  constructor(message: string) {
-    super("UNIQUE_VIOLATION", message);
-    this.name = "UniqueViolationError";
-  }
+/**
+ * 唯一约束冲突守卫（数据库层信号，供内部转译业务错误）。
+ *
+ * 数据库唯一约束冲突（pg 23505）由适配器转译为 code=UNIQUE_VIOLATION 的
+ * OmniAuthError 抛出（不设专用类——避免与宿主基础设施（yunzone-service-kit）
+ * 的同名错误类形成“同名不同类型”陷阱；跨抽象判断统一按 err.code）。
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return err instanceof OmniAuthError && err.code === "UNIQUE_VIOLATION";
 }

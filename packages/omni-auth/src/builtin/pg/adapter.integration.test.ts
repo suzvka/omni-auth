@@ -6,13 +6,13 @@
 //
 // 覆盖单元测试无法验证的关键路径：
 // - 真实 SQL 执行与驼峰列名引号保真
-// - 唯一约束冲突（23505）→ UniqueViolationError 转译
+// - 唯一约束冲突（23505）→ code=UNIQUE_VIOLATION 的 OmniAuthError（isUniqueViolation 守卫）
 // - 单连接事务 BEGIN/COMMIT/ROLLBACK
 // ============================================================
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PgAdapter } from "./adapter";
-import { UniqueViolationError } from "../../errors";
+import { isUniqueViolation } from "../../errors";
 import { Pool } from "pg";
 
 const PG_URL = process.env.OMNI_AUTH_TEST_PG_URL;
@@ -79,7 +79,7 @@ describe.runIf(Boolean(PG_URL))("PgAdapter 集成测试（真实 PostgreSQL）",
         ).toBeNull();
     });
 
-    it("唯一约束冲突转译为 UniqueViolationError", async () => {
+    it("唯一约束冲突转译为 code=UNIQUE_VIOLATION（isUniqueViolation 守卫命中）", async () => {
         await adapter.create({
             model: TABLE,
             data: { id: "u2", email: "dup@it.local", name: "B", createdAt: new Date() },
@@ -90,7 +90,7 @@ describe.runIf(Boolean(PG_URL))("PgAdapter 集成测试（真实 PostgreSQL）",
                 model: TABLE,
                 data: { id: "u3", email: "dup@it.local", name: "C", createdAt: new Date() },
             })
-        ).rejects.toThrow(UniqueViolationError);
+        ).rejects.toSatisfy(isUniqueViolation);
     });
 
     it("transaction 正常提交", async () => {

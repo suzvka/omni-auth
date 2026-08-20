@@ -11,7 +11,7 @@
 
 import "server-only";
 
-import { PgSqlDb } from "yunzone-service-kit/db";
+import { PgSqlDb, StorageConfigError, isPoolProvider } from "yunzone-service-kit/db";
 import type { SqlDb } from "yunzone-service-kit/db";
 import { resolveDatabaseUrl } from "yunzone-service-kit/config";
 
@@ -33,8 +33,15 @@ function getDb(): SqlDb {
 /**
  * 获取底层 pg 连接池引用（宿主注入场景：如传给 omni-auth 的
  * createQuickAuth({ database: { pool } })），实现单池共享。
+ *
+ * 能力探测：SqlDb 契约保持纯净（不声明 pg 特有能力），
+ * 经 isPoolProvider 守卫收窄后调用，替代对具体类的类型断言。
+ * 返回类型沿用 kit 解析的 Pool（避免与宿主本地 @types/pg 副本类型不兼容）。
  */
 export function getPool(): ReturnType<PgSqlDb["getPool"]> {
-  // getPool 是 PgSqlDb 类的扩展能力（SqlDb 接口不含），单例实际类型即 PgSqlDb
-  return (getDb() as PgSqlDb).getPool();
+  const db = getDb();
+  if (!isPoolProvider(db)) {
+    throw new StorageConfigError("当前 SqlDb 实现不提供连接池（getPool）");
+  }
+  return db.getPool();
 }

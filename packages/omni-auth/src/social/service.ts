@@ -9,7 +9,7 @@
 import type { DatabaseAdapter } from "../adapters/database";
 import type { SocialAccountDTO } from "./types";
 import type { TokenRefresher, SocialAccountRef } from "./token";
-import { SocialAccountConflictError, UniqueViolationError } from "../errors";
+import { SocialAccountConflictError, isUniqueViolation } from "../errors";
 import { createDbFacade } from "../models";
 import type { SocialAccountRow } from "../schema";
 
@@ -180,7 +180,7 @@ export function createSocialService(
         return toDTO(record);
       } catch (err) {
         // 并发绑定时预检查可能漏判，由唯一约束兜底并转译为冲突错误
-        if (err instanceof UniqueViolationError) {
+        if (isUniqueViolation(err)) {
           throw new SocialAccountConflictError(
             input.provider,
             input.providerOpenid

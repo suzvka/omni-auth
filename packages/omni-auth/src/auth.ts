@@ -49,7 +49,7 @@ import {
   UserExistsError,
   CredentialInvalidError,
   SocialAccountConflictError,
-  UniqueViolationError,
+  isUniqueViolation,
   WeakPasswordError,
 } from "./errors";
 import { createRegistry, type OmniRegistry } from "./registry";
@@ -526,7 +526,7 @@ export class OmniAuth {
       );
     } catch (err) {
       // 并发注册时预检查可能漏判，由唯一约束兜底并转译为友好错误
-      if (err instanceof UniqueViolationError) {
+      if (isUniqueViolation(err)) {
         throw new UserExistsError("该邮箱已被注册");
       }
       throw err;
@@ -745,7 +745,7 @@ export class OmniAuth {
       );
     } catch (err) {
       // 并发注册时预检查可能漏判，由唯一约束兜底
-      if (err instanceof UniqueViolationError) {
+      if (isUniqueViolation(err)) {
         throw new SocialAccountConflictError(input.provider, input.providerOpenid);
       }
       throw err;

@@ -22,6 +22,8 @@ export type {
 export type { OmniAuthConfig as ChangfengAuthConfig } from "./auth";
 
 // 错误（OmniAuthError 为基类，均带机器可读 code）
+// isUniqueViolation 守卫：数据库唯一约束信号（code=UNIQUE_VIOLATION）不设专用类，
+// 与宿主基础设施（yunzone-service-kit）的错误族避免同名不同类型陷阱
 export {
   OmniAuthError,
   UnauthorizedError,
@@ -32,7 +34,7 @@ export {
   WeakPasswordError,
   CredentialInvalidError,
   OAuthStateMismatchError,
-  UniqueViolationError,
+  isUniqueViolation,
 } from "./errors";
 
 // 类型

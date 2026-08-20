@@ -15,7 +15,7 @@ import type {
   SearchCondition,
   OrderByCondition,
 } from "../../adapters/database";
-import { UniqueViolationError } from "../../errors";
+import { OmniAuthError } from "../../errors";
 
 // ----------------------------------------------------------
 // 配置
@@ -159,14 +159,20 @@ function buildOrderClause(orderBy: OrderByCondition): string {
   return `ORDER BY ${quoteIdent(orderBy.field)} ${orderBy.direction === "desc" ? "DESC" : "ASC"}`;
 }
 
-/** 唯一约束冲突（pg 错误码 23505）转译为 UniqueViolationError */
+/**
+ * 唯一约束冲突（pg 错误码 23505）转译为 code=UNIQUE_VIOLATION 的 OmniAuthError。
+ *
+ * 不设专用错误类：与宿主基础设施（yunzone-service-kit）的同名类区分，
+ * 跨抽象判断统一按 err.code（isUniqueViolation 守卫）。
+ */
 function translatePgError(err: unknown): never {
   if (
     err &&
     typeof err === "object" &&
     (err as { code?: string }).code === "23505"
   ) {
-    throw new UniqueViolationError(
+    throw new OmniAuthError(
+      "UNIQUE_VIOLATION",
       err instanceof Error ? err.message : String(err)
     );
   }
@@ -386,6 +392,10 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     /**
      * 单连接事务：BEGIN → fn(tx) → COMMIT，抛错则 ROLLBACK。
      * tx 适配器与主适配器语义一致，但所有查询走事务绑定的连接。
+     *
+     * 契约约束：SDK 事务与宿主事务（如 yunzone-service-kit withTransaction）
+     * 互相不可见——宿主应在自身事务外调用 SDK 写操作，否则 SDK 在池上另开
+     * 连接，其写入会静默逃逸宿主事务。
      */
     async transaction<T>(fn: (tx: DatabaseAdapter) => Promise<T>): Promise<T> {
       const client = await pool.connect();

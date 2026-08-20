@@ -21,7 +21,7 @@ import type { OAuthCallbackResult, OAuthProviderConfig } from "./types";
 import type { AuditEvent } from "../core/audit";
 import {
     OAuthStateMismatchError,
-    UniqueViolationError,
+    isUniqueViolation,
     SocialAccountConflictError,
 } from "../errors";
 import { createDbFacade } from "../models";
@@ -348,7 +348,7 @@ export function createOAuthHandler(deps: {
                 });
             });
         } catch (err) {
-            if (err instanceof UniqueViolationError) {
+            if (isUniqueViolation(err)) {
                 // 渠道并发注册等唯一约束冲突
                 throw new SocialAccountConflictError(provider, exchanged.openid);
             }
