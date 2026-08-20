@@ -4,9 +4,9 @@ import type { RequestContext } from "../adapters/request";
 import { createRequestContext } from "../adapters/request";
 import { createAuth } from "../auth";
 import { PgAdapter } from "../builtin/pg/adapter";
+import type { PgPoolLike } from "../builtin/pg/adapter";
 import type { DatabaseAdapter } from "../adapters/database";
 import type { LifecycleHooks } from "../core/lifecycle";
-import type { PgAdapterOptions } from "../builtin/pg/adapter";
 
 // ============================================================
 // 统一导出：所有常用类型只需从 omni-auth/nextjs 导入
@@ -47,37 +47,37 @@ export function nextjsRequestContext(
 // createQuickAuth — 一站式初始化工厂
 // ============================================================
 
-function isDeclarativeDbConfig(cfg: DatabaseAdapter | DeclarativeDbConfig): cfg is DeclarativeDbConfig {
-  return typeof cfg === "object" && cfg !== null && "url" in cfg;
+function isPoolDbConfig(cfg: DatabaseAdapter | PoolDbConfig): cfg is PoolDbConfig {
+  return typeof cfg === "object" && cfg !== null && "pool" in cfg;
 }
 
-/** 声明式数据库配置 */
-export interface DeclarativeDbConfig {
-  /** PostgreSQL 连接 URL（必填） */
-  url: string;
-  /** TLS/SSL 配置（Neon、Supabase 等云数据库通常要求启用） */
-  ssl?: PgAdapterOptions["ssl"];
-  /** 连接池配置（可选） */
-  pool?: {
-    max?: number;
-    idleTimeoutMs?: number;
-  };
+/**
+ * 注入式数据库配置：宿主提供现成连接池。
+ *
+ * 连接池（含 SSL/max 等配置）由宿主创建与管理，SDK 只消费引用——
+ * 认证域与宿主业务域共享同一连接池，避免双池。
+ * 类型为最小结构形状（PgPoolLike），与宿主所用 pg 类型版本解耦。
+ */
+export interface PoolDbConfig {
+  /** 宿主提供的现成连接池（必填） */
+  pool: PgPoolLike;
 }
 
 export interface QuickAuthConfig {
   /**
    * 数据库适配器。
    *
-   * **声明式配置（推荐）：**
+   * **注入式配置（推荐）：**
    * ```ts
-   * database: { url: process.env.DATABASE_URL }
+   * database: { pool: getPool() }
    * ```
-   * SDK 内置 pg 驱动，零 ORM 依赖。
+   * SDK 基于注入的 pg 连接池执行参数化 SQL，零 ORM 依赖，
+   * 连接池生命周期归宿主（单池共享）。
    *
    * **自定义适配器：**
    * 也可传入任意 DatabaseAdapter 实现。
    */
-  database: DatabaseAdapter | DeclarativeDbConfig;
+  database: DatabaseAdapter | PoolDbConfig;
   /**
    * 密钥（可选）。
    *
@@ -99,7 +99,7 @@ export interface QuickAuthConfig {
 /**
  * 一站式初始化认证 SDK。
  *
- * 自动处理：数据库适配器连接。
+ * 自动处理：数据库适配器连接（基于宿主注入的连接池）。
  * 本 SDK 只负责凭证校验（用户是否存在 + 密码是否正确），
  * 不维护任何会话状态（会话由应用层自行管理）。
  *
@@ -108,7 +108,7 @@ export interface QuickAuthConfig {
  * import { createQuickAuth } from "omni-auth/nextjs";
  *
  * export const auth = createQuickAuth({
- *   database: { url: process.env.DATABASE_URL },
+ *   database: { pool: getPool() },
  *   baseUrl: process.env.BETTER_AUTH_URL!,
  * });
  * ```
@@ -118,9 +118,9 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
 
   let database: DatabaseAdapter;
 
-  if (isDeclarativeDbConfig(config.database)) {
-    // 声明式配置：内置 pg 驱动
-    database = PgAdapter(config.database);
+  if (isPoolDbConfig(config.database)) {
+    // 注入式配置：基于宿主提供的连接池
+    database = PgAdapter({ pool: config.database.pool });
   } else {
     database = config.database;
   }

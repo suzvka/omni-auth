@@ -1,6 +1,13 @@
 # Changelog
 
-## 5.0.0（未发布）
+## 5.1.0（未发布）
+
+> **数据库适配器改为注入式连接池**（相对 npm 5.0.0 的增量）：`PgAdapter` 不再自行创建/
+> 关闭连接池，改由宿主提供现成连接池引用（`createQuickAuth({ database: { pool } })`），
+> 认证域与宿主业务域共享同一连接池。`{ url, ssl }` 声明式形态已删除。
+> 连接池类型为最小结构接口 `PgPoolLike`，与宿主所用 pg 类型版本解耦（零依赖 kit）。
+
+## 5.0.0（npm 已发布旧版；本仓库源码为渠道化重构，随 5.1.0 发布）
 
 > **渠道化重构：两表模型（user + socialAccount）**。删除 account 表与
 > user.email 邮箱锚点，密码以共享语义上移至 user.password；邮箱降级为

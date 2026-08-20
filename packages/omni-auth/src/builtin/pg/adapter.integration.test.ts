@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PgAdapter } from "./adapter";
 import { UniqueViolationError } from "../../errors";
+import { Pool } from "pg";
 
 const PG_URL = process.env.OMNI_AUTH_TEST_PG_URL;
 
@@ -20,10 +21,11 @@ const PG_URL = process.env.OMNI_AUTH_TEST_PG_URL;
 const TABLE = `omni_auth_it_${Date.now()}`;
 
 describe.runIf(Boolean(PG_URL))("PgAdapter 集成测试（真实 PostgreSQL）", () => {
-    const adapter = PgAdapter({ url: PG_URL! });
+    // 测试自身作为宿主创建/关闭连接池（注入模式）
+    const pool = new Pool({ connectionString: PG_URL! });
+    const adapter = PgAdapter({ pool });
 
     beforeAll(async () => {
-        const pool = await adapter.getPool();
         // 普通表（非 TEMP）：连接池多连接可见；唯一表名避免并行冲突
         await pool.query(
             `CREATE TABLE IF NOT EXISTS ${TABLE} (
@@ -37,10 +39,9 @@ describe.runIf(Boolean(PG_URL))("PgAdapter 集成测试（真实 PostgreSQL）",
 
     afterAll(async () => {
         try {
-            const pool = await adapter.getPool();
             await pool.query(`DROP TABLE IF EXISTS ${TABLE}`);
         } finally {
-            await adapter.disconnect();
+            await pool.end(); // 池所有权归宿主（测试）
         }
     });
 

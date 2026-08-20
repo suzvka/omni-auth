@@ -3,9 +3,12 @@
 //
 // 零 ORM 依赖，直接执行参数化 SQL。
 // 支持 PostgreSQL 14+。
+//
+// 连接池由宿主注入（必填）：本适配器不自行创建/关闭连接池，
+// 池的生命周期（含 disconnect）归宿主所有，实现单池共享。
 // ============================================================
 
-import type { Pool, PoolConfig, QueryResultRow } from "pg";
+import type { QueryResultRow } from "pg";
 import type {
   DatabaseAdapter,
   WhereCondition,
@@ -18,24 +21,40 @@ import { UniqueViolationError } from "../../errors";
 // 配置
 // ----------------------------------------------------------
 
+/**
+ * 宿主连接池的最小结构形状（结构化类型）。
+ *
+ * 刻意不引用 @types/pg 的 Pool 具体类型：宿主项目（如 yunzone-service-kit）
+ * 可能解析到不同版本的 @types/pg，结构兼容即可避免跨项目类型耦合。
+ */
+export interface PgPoolLike {
+  query(text: string, values?: unknown[]): Promise<{
+    rows: unknown[];
+    rowCount: number | null;
+  }>;
+  connect(): Promise<PgClientLike>;
+}
+
+/** 事务连接的最小结构形状 */
+export interface PgClientLike {
+  query(text: string, values?: unknown[]): Promise<{
+    rows: unknown[];
+    rowCount: number | null;
+  }>;
+  release(err?: Error | boolean): void;
+}
+
 export interface PgAdapterOptions {
-  /** PostgreSQL 连接 URL（必填） */
-  url: string;
-  /** TLS/SSL 配置（Neon、Supabase 等云数据库通常要求启用） */
-  ssl?: PoolConfig["ssl"];
-  /** 连接池配置（可选） */
-  pool?: {
-    max?: number;
-    idleTimeoutMillis?: number;
-  };
+  /** 宿主提供的现成连接池（必填）。池配置（SSL/max 等）与生命周期归宿主 */
+  pool: PgPoolLike;
 }
 
 export interface PgAdapterInstance extends DatabaseAdapter {
-  /** 获取（必要时创建）内部 pg Pool 引用 */
-  getPool(): Promise<Pool>;
-  /** 初始化连接池（预热） */
+  /** 获取注入的宿主连接池引用 */
+  getPool(): Promise<PgPoolLike>;
+  /** 初始化（注入池已就绪，no-op） */
   init(): Promise<void>;
-  /** 关闭连接池 */
+  /** 关闭连接池（no-op：池所有权归宿主） */
   disconnect(): Promise<void>;
 }
 
@@ -165,21 +184,11 @@ function requireNonEmptyWhere(method: string, where: WhereCondition[]): void {
 // 适配器实现
 // ----------------------------------------------------------
 
-/** 构建 pg Pool 构造参数（独立纯函数，便于单元测试） */
-export function buildPoolConfig(options: PgAdapterOptions): PoolConfig {
-  return {
-    connectionString: options.url,
-    ssl: options.ssl,
-    max: options.pool?.max ?? 10,
-    idleTimeoutMillis: options.pool?.idleTimeoutMillis ?? 30000,
-  };
-}
-
-/** SQL 执行器签名：Pool 级与事务 Client 级共用同一套 CRUD 构建 */
+/** SQL 执行器签名：Pool 级与事务 Client 级共用同一套 CRUD 构建（rows 用 unknown，避免类型版本耦合） */
 type QueryExecutor = (
   sql: string,
   values: unknown[]
-) => Promise<{ rows: QueryResultRow[]; rowCount: number }>;
+) => Promise<{ rows: unknown[]; rowCount: number }>;
 
 /** 基于给定执行器构建完整 CRUD（pool 级 / 事务级共用） */
 function buildCrudAdapter(exec: QueryExecutor): DatabaseAdapter {
@@ -355,31 +364,10 @@ function buildCrudAdapter(exec: QueryExecutor): DatabaseAdapter {
 }
 
 export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
-  // 延迟加载 pg 以支持 tree-shaking（仅在使用此适配器时加载）。
-  // 使用动态 import("pg") 而非 require("pg")：esbuild 会把 require 转为
-  // __require shim，Next.js 16 的打包器无法静态分析 __require("pg")，
-  // 会报 "dynamic usage of require is not supported"。
-  let _pool: Pool | null = null;
-  let _pgPromise: Promise<typeof import("pg")> | null = null;
+  const pool = options.pool;
 
-  function loadPg(): Promise<typeof import("pg")> {
-    if (!_pgPromise) {
-      _pgPromise = import("pg");
-    }
-    return _pgPromise;
-  }
-
-  async function getPool(): Promise<Pool> {
-    if (!_pool) {
-      const pg = await loadPg();
-      _pool = new pg.Pool(buildPoolConfig(options));
-    }
-    return _pool;
-  }
-
-  /** Pool 级执行器（含唯一约束错误转译） */
+  /** Pool 级执行器（含唯一约束错误转译；注入池返回原生 pg 错误，归一化在本层） */
   const poolExec: QueryExecutor = async (sql, values) => {
-    const pool = await getPool();
     try {
       const result = await pool.query(sql, values);
       return { rows: result.rows, rowCount: result.rowCount ?? result.rows.length };
@@ -400,7 +388,6 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
      * tx 适配器与主适配器语义一致，但所有查询走事务绑定的连接。
      */
     async transaction<T>(fn: (tx: DatabaseAdapter) => Promise<T>): Promise<T> {
-      const pool = await getPool();
       const client = await pool.connect();
       const clientExec: QueryExecutor = async (sql, values) => {
         try {
@@ -432,18 +419,15 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
     // ---- 生命周期 ----
 
     async getPool() {
-      return getPool();
+      return pool;
     },
 
     async init() {
-      await getPool(); // 预热连接池
+      // 注入池已由宿主就绪，无需预热
     },
 
     async disconnect() {
-      if (_pool) {
-        await _pool.end();
-        _pool = null;
-      }
+      // 池所有权归宿主（如 yunzone-service-kit PgSqlDb），不在此关闭
     },
   };
 }

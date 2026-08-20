@@ -9,32 +9,28 @@
     "lint": "eslint",
     "build:packages": "pnpm --filter omni-auth build",
     "publish:packages": "pnpm --filter omni-auth publish --access public",
-    "update:prisma": "node scripts/merge-prisma-schema.mjs",
     "migrate:v5": "node packages/omni-auth/bin/migrate-v5.mjs"
   },
   "dependencies": {
-    "@prisma/client": "^6",
-    "omni-auth": "workspace:*",
     "next": "16.2.6",
+    "omni-auth": "workspace:*",
+    "pg": "^8",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "yunzone-service-kit": "^0.10.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
-    "prisma": "^6",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "@prisma/client",
-      "@prisma/engines",
-      "prisma"
-    ]
+    "onlyBuiltDependencies": []
   }
 }
