@@ -1,6 +1,16 @@
 # Changelog
 
-## 5.1.0（未发布）
+## 5.1.1（未发布）
+
+> **修复 npm 5.1.0 构建产物缺失 SCIM / OAuth scope 导出的问题**。npm 上的 5.1.0
+> 发布于 SCIM 模块与 scope 协商加入源码之前（2026-08-20 15:00 发布，16:41 引入
+> SCIM），导致宿主项目（yunzone_user_center）从 `omni-auth` 导入
+> `ScimError` / `parsePagination` / `buildListResponse` / `parseFilter` /
+> `allSchemas` / `getSchemaById` / `notFound` / `hasScope` / `negotiateScope`
+> 在 Turbopack 下构建失败（10 个导出缺失错误）。5.1.1 为 5.1.0 源码的全量
+> 重新构建产物，公开 API 无新增、无破坏。
+
+## 5.1.0（npm 已发布；注：该版本构建产物缺失 SCIM 导出，请升级至 5.1.1）
 
 > **数据库适配器改为注入式连接池**（相对 npm 5.0.0 的增量）：`PgAdapter` 不再自行创建/
 > 关闭连接池，改由宿主提供现成连接池引用（`createQuickAuth({ database: { pool } })`），
