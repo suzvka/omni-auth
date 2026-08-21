@@ -1,36 +1,17 @@
 {
-  "name": "omni-user-center",
+  "name": "omni-auth-workspace",
   "version": "0.1.0",
   "private": true,
+  "description": "omni-auth SDK monorepo — 全渠道认证 SDK（packages/omni-auth）+ 演示宿主（apps/demo）",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "build:packages": "pnpm --filter omni-auth build",
-    "publish:packages": "pnpm --filter omni-auth publish --access public",
+    "build": "pnpm --filter omni-auth build",
+    "dev": "pnpm --filter omni-auth-demo dev",
+    "build:demo": "pnpm --filter omni-auth-demo build",
+    "start": "pnpm --filter omni-auth-demo start",
+    "lint": "pnpm --filter omni-auth-demo lint",
+    "test": "pnpm --filter omni-auth test",
+    "typecheck": "pnpm --filter omni-auth typecheck",
+    "publish": "pnpm --filter omni-auth publish --access public",
     "migrate:v5": "node packages/omni-auth/bin/migrate-v5.mjs"
-  },
-  "dependencies": {
-    "next": "16.2.6",
-    "omni-auth": "workspace:*",
-    "pg": "^8",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "yunzone-service-kit": "^0.11.1"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/pg": "^8.23.1",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.6",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": []
   }
 }
