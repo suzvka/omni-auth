@@ -263,7 +263,7 @@ export class OmniAuth {
   private _dbFacade: DbFacade | null = null;
   /** 会话服务（认证域私有表 session） */
   private _sessions: SessionService;
-  /** OAuth Server 服务（oauth_token / oauth_client 私有表） */
+  /** OAuth Server 服务（oauthToken / oauthClient 私有表） */
   private _oauthServer: OAuthServerService;
   /** 用户管理服务 */
   private _userAdmin: UserAdminService;

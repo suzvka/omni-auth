@@ -4,7 +4,7 @@
 // 迁移自宿主 user_center 的 user-service.ts / user-lifecycle.ts：
 // - 邮箱唯一性 / 规范化 / 渠道更新逻辑收敛到包内
 // - emailVerified / active 成为包内用户元数据（API 数据契约）
-// - 删除用户的级联规则（session / socialAccount / oauth_token / user）
+// - 删除用户的级联规则（session / socialAccount / oauthToken / user）
 //   在包内单事务闭环，宿主不再编排
 // ============================================================
 
@@ -323,7 +323,7 @@ export function createUserAdmin(
     },
 
     async deleteUser(userId) {
-      // 级联删除（session / socialAccount / oauth_token / user）单事务闭环
+      // 级联删除（session / socialAccount / oauthToken / user）单事务闭环
       await withTransaction(db, async (tx) => {
         await tx.deleteMany({
           model: "session",

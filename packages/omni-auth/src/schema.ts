@@ -83,14 +83,14 @@ export const session = table("session", {
 });
 
 // ----------------------------------------------------------
-// oauth_token 表（授权码 + refresh token 生命周期）
+// oauthToken 表（授权码 + refresh token 生命周期）
 //
-// 列名沿用历史物理表（snake_case）；无 id 列（历史 INSERT 不携带），
-// (token, type) 复合唯一索引标识记录。
+// 表名与 model 名一致（驼峰），由 db:push / schema-sync 同步；
+// 无 id 列（历史 INSERT 不携带），(token, type) 复合唯一索引标识记录。
 // ----------------------------------------------------------
 
 export const oauthToken = table(
-  "oauth_token",
+  "oauthToken",
   {
     token: text().notNull(),
     type: text().notNull(),
@@ -109,19 +109,20 @@ export const oauthToken = table(
 );
 
 // ----------------------------------------------------------
-// oauth_client 表（OAuth 客户端凭证）
+// oauthClient 表（OAuth 客户端凭证）
 //
 // client_secret 由 Token Authority Service 签发的证书承载；
-// 列名沿用历史物理表（snake_case）。
+// 表名与 model 名一致（驼峰），由 db:push / schema-sync 同步。
 // ----------------------------------------------------------
 
-export const oauthClient = table("oauth_client", {
+export const oauthClient = table("oauthClient", {
   id: text().primaryKey(),
   client_id: text().notNull().unique(),
   client_secret: text(),
   client_name: text().notNull(),
   client_uri: text(),
-  redirect_uris: jsonb().notNull().default([]),
+  /** 回调地址清单（jsonb 数组形状，InferSelect 推导 string[]） */
+  redirect_uris: jsonb<string[]>().notNull().default([]),
   is_confidential: boolean().notNull().default(true),
   status: text().notNull().default("active"),
   description: text().notNull().default(""),

@@ -68,7 +68,7 @@ describe("syncSchema", () => {
   });
 
   it("autoSync=false：检测到缺表时返回缺失清单", async () => {
-    const missing = ["session", "oauth_token", "oauth_client"];
+    const missing = ["session", "oauthToken", "oauthClient"];
     const { pool } = createMockPool({
       existingTables: ["user", "socialAccount"],
     });

@@ -45,13 +45,14 @@ export interface ColumnDef<T extends ColumnType = ColumnType> {
 export class ColumnBuilder<
   T extends ColumnType = ColumnType,
   TRequired extends boolean = boolean,
-  TDefault extends boolean = boolean
+  TDefault extends boolean = boolean,
+  TTs extends unknown = Record<string, unknown>
 > {
   constructor(public _def: ColumnDef<T>) {}
 
-  notNull(): ColumnBuilder<T, true, TDefault> {
+  notNull(): ColumnBuilder<T, true, TDefault, TTs> {
     this._def.required = true;
-    return this as unknown as ColumnBuilder<T, true, TDefault>;
+    return this as unknown as ColumnBuilder<T, true, TDefault, TTs>;
   }
 
   unique(): this {
@@ -59,15 +60,15 @@ export class ColumnBuilder<
     return this;
   }
 
-  default(value: unknown): ColumnBuilder<T, TRequired, true> {
+  default(value: unknown): ColumnBuilder<T, TRequired, true, TTs> {
     this._def.default = value;
-    return this as unknown as ColumnBuilder<T, TRequired, true>;
+    return this as unknown as ColumnBuilder<T, TRequired, true, TTs>;
   }
 
-  primaryKey(): ColumnBuilder<T, true, TDefault> {
+  primaryKey(): ColumnBuilder<T, true, TDefault, TTs> {
     this._def.primaryKey = true;
     this._def.required = true;
-    return this as unknown as ColumnBuilder<T, true, TDefault>;
+    return this as unknown as ColumnBuilder<T, true, TDefault, TTs>;
   }
 
   references(
@@ -89,8 +90,19 @@ export const boolean = (): ColumnBuilder<"boolean"> =>
   new ColumnBuilder({ type: "boolean" });
 export const integer = (): ColumnBuilder<"integer"> =>
   new ColumnBuilder({ type: "integer" });
-export const jsonb = (): ColumnBuilder<"jsonb"> =>
-  new ColumnBuilder({ type: "jsonb" });
+/**
+ * jsonb 列。
+ *
+ * 通过泛型参数声明值的 TS 形状（如 `jsonb<string[]>()`），驱动 InferSelect /
+ * InferInsert 推导准确类型；不带参数时默认为 `Record<string, unknown>`。
+ * SQL 类型恒为 JSONB，与 TS 形状无关。
+ */
+export const jsonb = <TTs extends unknown = Record<string, unknown>>(): ColumnBuilder<
+  "jsonb",
+  boolean,
+  boolean,
+  TTs
+> => new ColumnBuilder({ type: "jsonb" });
 export const timestamptz = (): ColumnBuilder<"timestamptz"> =>
   new ColumnBuilder({ type: "timestamptz" });
 export const timestamp = (): ColumnBuilder<"timestamp"> =>
@@ -100,7 +112,7 @@ export const timestamp = (): ColumnBuilder<"timestamp"> =>
 // 表定义
 // ----------------------------------------------------------
 
-export type AnyColumnBuilder = ColumnBuilder<any, any>;
+export type AnyColumnBuilder = ColumnBuilder<any, any, any, any>;
 
 export interface TableDef<
   TColumns extends Record<string, AnyColumnBuilder> = Record<string, AnyColumnBuilder>
@@ -151,8 +163,15 @@ type HasDefault<T extends AnyColumnBuilder> = T extends ColumnBuilder<any, any, 
     : false
   : false;
 
-/** 列的 TS 值类型 */
-type ColumnTsType<T extends AnyColumnBuilder> = TypeMap[T["_def"]["type"]];
+/** 列的 TS 值类型（jsonb 取泛型声明的形状，其余查 TypeMap） */
+type ColumnTsType<T extends AnyColumnBuilder> = T extends ColumnBuilder<
+  "jsonb",
+  any,
+  any,
+  infer TTs
+>
+  ? TTs
+  : TypeMap[T["_def"]["type"]];
 
 /** 推断 SELECT 返回类型（全字段，required 非空，optional 可 null） */
 export type InferSelect<T extends TableDef> = {

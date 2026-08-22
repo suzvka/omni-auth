@@ -439,11 +439,16 @@ export function createOAuthServer(
       const row = await db.create({
         model: "oauthClient",
         data: {
+          // id 由应用层生成（与 user/socialAccount 插入一致）：autoSync 建表的
+          // oauthClient.id 无 DB DEFAULT（text PK，非序列），插入必须显式提供。
+          id: randomUUID(),
           client_id: clientId,
           client_secret: certResult.certificate,
           client_name: params.clientName,
           client_uri: params.clientUri || null,
-          redirect_uris: params.redirectUris ?? [],
+          // jsonb 列需显式 JSON 序列化：pg 驱动会把 JS 数组参数序列化为
+          // PG 数组文本（{...}），jsonb 解析失败或存成对象（空数组时）
+          redirect_uris: JSON.stringify(params.redirectUris ?? []),
           is_confidential: params.isConfidential ?? true,
           status: "active",
           description: params.description ?? "",
@@ -496,7 +501,10 @@ export function createOAuthServer(
       if (patch.client_name !== undefined) update.client_name = patch.client_name;
       if (patch.description !== undefined) update.description = patch.description;
       if (patch.client_uri !== undefined) update.client_uri = patch.client_uri || null;
-      if (patch.redirect_uris !== undefined) update.redirect_uris = patch.redirect_uris;
+      if (patch.redirect_uris !== undefined) {
+        // 与 createOAuthClient 一致：jsonb 列需显式 JSON 序列化
+        update.redirect_uris = JSON.stringify(patch.redirect_uris);
+      }
       if (patch.auto_renew !== undefined) update.auto_renew = Boolean(patch.auto_renew);
       if (patch.auto_renew_days !== undefined) update.auto_renew_days = patch.auto_renew_days;
 

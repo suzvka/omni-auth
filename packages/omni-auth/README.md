@@ -6,7 +6,7 @@ OmniAuth — 全渠道认证 SDK，框架无关，一等 Next.js 集成。
 
 **本 SDK 持有整个认证域**：凭证校验、用户/渠道记录持久化、会话管理、
 OAuth 2.0 server、SCIM 管理面。认证域表（`user`/`socialAccount`/`session`/
-`oauth_token`/`oauth_client`）全部为包内私有：**宿主零 SQL、零表名、
+`oauthToken`/`oauthClient`）全部为包内私有：**宿主零 SQL、零表名、
 零事务编排**——除运维在数据库 GUI 中可见外，宿主无需感知这些表的存在。
 
 ## 快速开始
@@ -112,8 +112,8 @@ export const auth = createQuickAuth({
   持有该渠道的 token / 资料 / 能力标记（valid / allowPasswordUpdate /
   allowVerification）
 - `session`：宿主会话（`id`/`userId`/`token`/`expiresAt`/`createdAt`）
-- `oauth_token`：授权码 + refresh token 生命周期（`(token, type)` 复合唯一）
-- `oauth_client`：OAuth 客户端凭证（`client_secret` 由 Token Authority 证书承载）
+- `oauthToken`：授权码 + refresh token 生命周期（`(token, type)` 复合唯一）
+- `oauthClient`：OAuth 客户端凭证（`client_secret` 由 Token Authority 证书承载）
 
 邮箱是普通渠道：`(provider="email", providerOpenid=邮箱地址)`，与微信、
 GitHub 等完全同构。`signUp` / `signIn` 是它的便捷方法；其他渠道一律走
@@ -141,7 +141,7 @@ GitHub 等完全同构。`signUp` / `signIn` 是它的便捷方法；其他渠�
   等凭证不代为验证，调用方必须预先验证并声明
   `credential.verified = true`。
 - **多表写入原子性**：注册流程（user + socialAccount）与删用户级联
-  （session / socialAccount / oauth_token / user）包入
+  （session / socialAccount / oauthToken / user）包入
   `DatabaseAdapter.transaction`；自定义适配器未实现事务时
   回退为顺序写入（仅警告）。
 - **令牌权威委托**：access token 签发/校验/续期/吊销委托宿主的

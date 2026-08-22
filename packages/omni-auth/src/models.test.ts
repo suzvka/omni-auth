@@ -1,7 +1,33 @@
-import { describe, it, expect, expectTypeOf } from "vitest";
+import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { createDbFacade } from "./models";
 import type { UserRow, SocialAccountRow } from "./models";
 import type { DatabaseAdapter, WhereCondition } from "./adapters/database";
+
+// ----------------------------------------------------------
+// 私有表视图（oauthToken/oauthClient）运行时告警
+// ----------------------------------------------------------
+
+describe("私有表视图（运行时告警）", () => {
+  it("oauthToken/oauthClient 方法访问各告警一次，重复访问不刷屏", async () => {
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const db = createDbFacade(createInMemoryDb());
+
+      // 每个私有视图多次访问只告警一次
+      await db.oauthClient.findOne({ where: [{ field: "client_id", value: "x" }] });
+      await db.oauthClient.count({});
+      await db.oauthToken.findOne({ where: [{ field: "token", value: "x" }] });
+      await db.oauthToken.count({});
+
+      const warns = spy.mock.calls.filter((c) => String(c[0]).includes("认证域私有视图"));
+      expect(warns).toHaveLength(2);
+      expect(String(warns[0][0])).toContain("db.oauthClient");
+      expect(String(warns[1][0])).toContain("db.oauthToken");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
 
 // ----------------------------------------------------------
 // 内存数据库（复用各模块测试的惯用实现）
@@ -198,6 +224,23 @@ describe("类型化表视图（编译期断言）", () => {
     });
     expectTypeOf(created).toEqualTypeOf<SocialAccountRow>();
     expectTypeOf(created.provider).toEqualTypeOf<string>();
+  });
+
+  it("oauthClient 视图：redirect_uris 推导为 string[]（jsonb<T>() 泛型）", async () => {
+    const adapter = createInMemoryDb();
+    const db = createDbFacade(adapter);
+
+    const created = await db.oauthClient.create({
+      data: {
+        client_id: "c-1",
+        client_name: "App",
+        issued_by: "admin",
+        redirect_uris: ["https://a.example.com/cb"],
+        updatedAt: new Date(),
+      },
+    });
+    // 类型化视图按 jsonb<string[]> 推导，而非笼统的 Record
+    expectTypeOf(created.redirect_uris).toEqualTypeOf<string[]>();
   });
 
   it("未声明的列名在编译期报错（负向用例）", async () => {

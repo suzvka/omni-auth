@@ -188,7 +188,7 @@ describe("createUserAdmin", () => {
     expect(await admin.getUser("ghost")).toBeNull();
   });
 
-  it("deleteUser：单事务级联删除 session/socialAccount/oauth_token/user", async () => {
+  it("deleteUser：单事务级联删除 session/socialAccount/oauthToken/user", async () => {
     const { db } = createMockAdapter();
     const sessions = createMockSessions();
     const admin = createUserAdmin(db, sessions);

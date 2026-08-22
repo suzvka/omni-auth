@@ -1,5 +1,46 @@
 # Changelog
 
+## 5.1.3（未发布）
+
+> **修复 OAuth 域在全新库上完全不可用的问题（5.1.2 双缺陷）**。
+>
+> **缺陷一（P0）：schema 建表名与运行时查询名不一致**。`oauthToken`/`oauthClient`
+> 的 `table()` 物理表名分别为 `oauth_token`/`oauth_client`（snake_case），而运行时
+> 查询层（`createDbFacade` → adapter）直接以 model 名 `oauthToken`/`oauthClient`
+> 拼 SQL。autoSync / db:push 建出的表与运行时查询的表不是同一张（PostgreSQL
+> 带引号标识符大小写敏感），全新库上任何 OAuth 操作（token 端点、oauth_client
+> 读取、cleanupExpiredTokens）报 `relation "oauthToken" does not exist`；
+> `createOAuthClient` 必然失败。修复为 `table()` 名统一为驼峰（与 model 名
+> 一致，单一标识符），并在 `generateDDL` 入口增加 `assertConsistentTableNames`
+> 一致性断言（autoSync 与 db:push 共用此路径，fail-fast 防回归）。
+>
+> **缺陷二（P1）：createOAuthClient 未传主键 id**。autoSync 建出的
+> `oauthClient.id` 为 `TEXT NOT NULL PRIMARY KEY`（无 DB DEFAULT），而
+> `createOAuthClient` 插入 data 不含 `id`，全新库上签发凭证报
+> `null value in column "id" violates not-null constraint`。修复为应用层生成
+> `id: randomUUID()`（与 user / socialAccount 插入路径一致）。
+>
+> 新增回归防护：pg-mem 集成测试覆盖全新库 autoSync 建表后
+> `createOAuthClient` / `createCode` / `consumeCode` 真实落库与回查（修复前
+> 必失败）。
+>
+> **配套加固（同版本）**：
+> - `jsonb<T>()` 泛型 DSL：`redirect_uris` 声明为 `jsonb<string[]>()`，
+>   InferSelect/InferInsert 推导 `string[]` 而非笼统的 `Record<string, unknown>`
+>   （类型与语义一致，根治类型误导）；
+> - 私有表视图收敛：`db.oauthToken` / `db.oauthClient` 标注 `@deprecated`，
+>   方法访问触发一次性运行时告警——"认证域私有"从注释契约变为可执行约束，
+>   未来 major 版本将移除这两个视图，宿主请使用 `auth.oauth.*` 语义 API。
+>
+> **宿主迁移提示**：若旧库存在历史 snake_case 表（`oauth_token`/`oauth_client`）
+> 且已有数据，升级后 autoSync 会新建驼峰空表（`oauthToken`/`oauthClient`），
+> 旧表数据需宿主自行迁移（INSERT INTO ... SELECT 或运维工具），或确认无数据
+> 后 DROP 旧表。包内不做表级自动 RENAME（超出 schema-sync 不删表/不迁移数据
+> 的安全策略；曾用 pnpm patch 建过驼峰表的库不受影响）。
+>
+> 本版本基于 5.1.2（bindToUser 主键生成修复，未发布）与 5.1.1（npm 已发布于
+> 2026-08-21）。
+
 ## 5.1.2（未发布）
 
 > **修复全新库注册必失败的问题**：`bindToUser` 插入 `socialAccount` 时未提供 `id`，

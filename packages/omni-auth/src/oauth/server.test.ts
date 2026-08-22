@@ -177,6 +177,16 @@ describe("createOAuthServer — 管理面", () => {
     expect(createData.client_secret).toBe("cert-123");
     expect(createData.status).toBe("active");
     expect(client.client_id).toBeTruthy();
+
+    // id 由应用层生成（autoSync 建表的 oauthClient.id 无 DB DEFAULT）
+    expect(createData.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+    // 记录主键与业务凭证（client_id）是两回事
+    expect(createData.id).not.toBe(createData.client_id);
+
+    // jsonb 列需显式 JSON 序列化（pg 驱动会把 JS 数组序列化为 PG 数组文本）
+    expect(createData.redirect_uris).toBe('["https://new.example.com/cb"]');
   });
 
   it("revokeOAuthClient：远端吊销成功后才落本地状态", async () => {

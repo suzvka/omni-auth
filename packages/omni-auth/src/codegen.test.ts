@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateDDL } from "./codegen-ddl";
+import { generateDDL, assertConsistentTableNames } from "./codegen-ddl";
 import { generatePrismaModels, generatePrismaSchema } from "./codegen-prisma";
 import { schema } from "./schema";
 
@@ -14,8 +14,8 @@ describe("generateDDL（SQL DDL 生成）", () => {
     expect(ddl).not.toContain('CREATE TABLE IF NOT EXISTS "account"');
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "socialAccount"');
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "session"');
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "oauth_token"');
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "oauth_client"');
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "oauthToken"');
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "oauthClient"');
   });
 
   it("user 表列定义正确（类型/非空/默认值/主键）", () => {
@@ -51,8 +51,8 @@ describe("schema 与类型联动", () => {
   it("DDL 中的表与 schema 对象一一对应", () => {
     const tables = Object.values(schema);
     expect(tables.map((t) => t.name).sort()).toEqual([
-      "oauth_client",
-      "oauth_token",
+      "oauthClient",
+      "oauthToken",
       "session",
       "socialAccount",
       "user",
@@ -63,6 +63,26 @@ describe("schema 与类型联动", () => {
     // typed 门面的 model 名（ModelName）应能覆盖全部 schema 表
     const modelNames = ["user", "socialAccount", "session", "oauthToken", "oauthClient"];
     expect(Object.keys(schema).sort()).toEqual(modelNames.sort());
+  });
+
+  it("schema 变量名与物理表名逐一一致（单一标识符约束）", () => {
+    // 运行时直接以 model 名（schema 变量名）拼 SQL，物理表名必须与之相同；
+    // 曾因 oauthToken/oauthClient 表名 snake_case 与 model 名分道扬镳导致
+    // 全新库 OAuth 操作必崩（5.1.2），此处为根因守卫。
+    for (const [model, tableDef] of Object.entries(schema)) {
+      expect(tableDef.name).toBe(model);
+    }
+  });
+
+  it("assertConsistentTableNames：不一致时抛错（fail-fast）", () => {
+    const bad = {
+      ...schema,
+      // 构造一个 model 名与物理表名不一致的非法 schema
+      oauthToken: { ...schema.oauthToken, name: "oauth_token" },
+    };
+    expect(() => assertConsistentTableNames(bad)).toThrow(/不一致/);
+    // 合法 schema 不抛错
+    expect(() => assertConsistentTableNames(schema)).not.toThrow();
   });
 });
 

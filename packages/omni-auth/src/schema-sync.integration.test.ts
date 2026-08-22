@@ -8,7 +8,7 @@ import type { PgPoolLike } from "./builtin/pg/adapter";
 // schema-sync 集成冒烟（pg-mem 内存库执行真实 DDL）
 //
 // 覆盖"旧库升级"场景：已有 user/socialAccount（旧结构），
-// 缺 session/oauth_token/oauth_client 表 + user 缺元数据列 +
+// 缺 session/oauthToken/oauthClient 表 + user 缺元数据列 +
 // session 旧版小写折叠列名，验证 syncSchema 一次补齐。
 // ------------------------------------------------------------
 

@@ -115,8 +115,29 @@ function buildCreateTableSQL(table: TableDef): string {
 // Schema → 完整 DDL
 // ----------------------------------------------------------
 
+/**
+ * 断言 schema 变量名与物理表名一致（单一标识符约束）。
+ *
+ * 运行时查询层（createDbFacade / adapter）直接以 model 名（schema 变量名）
+ * 拼 SQL，因此 table() 的物理表名必须与之相同；若二者分道扬镳，
+ * autoSync / db:push 建出的表与运行时查询的表不是同一张（5.1.2 回归教训），
+ * 此处 fail-fast 防止再次发生。
+ */
+export function assertConsistentTableNames(schema: Schema): void {
+  for (const [model, tableDef] of Object.entries(schema)) {
+    if (model !== tableDef.name) {
+      throw new Error(
+        `[omni-auth] schema 变量名与物理表名不一致: model="${model}" table()="${tableDef.name}"。` +
+          `物理表名必须与 model 名相同（运行时直接以 model 名拼 SQL）。`
+      );
+    }
+  }
+}
+
 /** 从 schema 对象生成完整 DDL（所有表的 CREATE TABLE + INDEX） */
 export function generateDDL(schema: Schema): string {
+  assertConsistentTableNames(schema);
+
   const statements: string[] = [];
 
   for (const table of Object.values(schema)) {

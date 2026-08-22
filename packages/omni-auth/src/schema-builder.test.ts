@@ -60,6 +60,7 @@ describe("InferSelect 类型推断", () => {
     active: boolean().notNull(),
     score: integer(),
     profile: jsonb().notNull(),
+    tags: jsonb<string[]>().notNull(),
     createdAt: timestamptz().notNull(),
     deletedAt: timestamptz(),
   });
@@ -75,5 +76,12 @@ describe("InferSelect 类型推断", () => {
     expectTypeOf<DemoRow["profile"]>().toEqualTypeOf<Record<string, unknown>>();
     expectTypeOf<DemoRow["createdAt"]>().toEqualTypeOf<Date>();
     expectTypeOf<DemoRow["deletedAt"]>().toEqualTypeOf<Date | null>();
+  });
+
+  it("jsonb<T>() 泛型：推导指定值形状（默认仍为 Record）", () => {
+    // 显式形状：推导为 string[]
+    expectTypeOf<DemoRow["tags"]>().toEqualTypeOf<string[]>();
+    // 无泛型参数：保持 Record<string, unknown> 默认
+    expectTypeOf<DemoRow["profile"]>().toEqualTypeOf<Record<string, unknown>>();
   });
 });

@@ -19,8 +19,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **认证逻辑单一来源**：认证领域逻辑只在 omni-auth 库（`packages/omni-auth`）内实现；
   宿主（演示宿主 `apps/demo` 或任何集成方）只消费 HTTP 接口（`/api/auth/*`）或库的公开 API，
   不存在第二套认证实现。
-- **认证表单一写者（部署约束）**：认证表（`user`/`socialAccount`/`session`/`oauth_token`/
-  `oauth_client`）只能有一个生产实例承担写侧（user_center）。演示宿主 `apps/demo` 与
+- **认证表单一写者（部署约束）**：认证表（`user`/`socialAccount`/`session`/`oauthToken`/
+  `oauthClient`）只能有一个生产实例承担写侧（user_center）。演示宿主 `apps/demo` 与
   user_center 共享同一数据库时，其 sign-up 等写路由仅限开发/演示形态；生产部署请走 HTTP
   消费（`/api/auth/*`），不实例化认证写侧。
 - **连接池单一来源（宿主注入）**：omni-auth 库不创建/关闭连接池（`PgAdapter` 要求必填

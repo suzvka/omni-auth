@@ -129,9 +129,17 @@ export interface DbFacade {
   socialAccount: ModelView<SocialAccountRow, SocialAccountInsert>;
   /** 会话表（认证域私有；宿主请使用 auth.sessions.* 语义 API） */
   session: ModelView<SessionRow, SessionInsert>;
-  /** OAuth 令牌表（认证域私有；宿主请使用 auth.oauth.* 语义 API） */
+  /**
+   * OAuth 令牌表（认证域私有，已弃用）：宿主请使用 auth.oauth.* 语义 API，
+   * 直接访问会在运行时告警，并将在未来 major 版本移除。
+   * @deprecated 认证域私有视图：请使用 auth.oauth.* 语义 API
+   */
   oauthToken: ModelView<OAuthTokenRow, OAuthTokenInsert>;
-  /** OAuth 客户端表（认证域私有；宿主请使用 auth.oauth.* 语义 API） */
+  /**
+   * OAuth 客户端表（认证域私有，已弃用）：宿主请使用 auth.oauth.* 语义 API，
+   * 直接访问会在运行时告警，并将在未来 major 版本移除。
+   * @deprecated 认证域私有视图：请使用 auth.oauth.* 语义 API
+   */
   oauthClient: ModelView<OAuthClientRow, OAuthClientInsert>;
 
   // ---- 泛型方法（已弃用） ----
@@ -189,6 +197,44 @@ export interface DbFacade {
 // 工厂
 // ----------------------------------------------------------
 
+// ----------------------------------------------------------
+// 私有表视图（认证域私有，宿主不得直连）
+// ----------------------------------------------------------
+
+/** 已告警的私有视图（一次性，避免刷屏） */
+const warnedPrivateViews = new Set<string>();
+
+/** 私有视图访问告警：宿主应使用 auth.oauth.* 语义 API */
+function warnPrivateViewOnce(label: string): void {
+  if (warnedPrivateViews.has(label)) return;
+  warnedPrivateViews.add(label);
+  console.warn(
+    `[omni-auth] db.${label} 为认证域私有视图（@deprecated）：` +
+      `请使用 auth.oauth.* 语义 API，直接访问将在未来 major 版本移除`
+  );
+}
+
+/**
+ * 创建私有表视图：任何方法访问都触发一次性告警。
+ * 私有表（oauthToken/oauthClient）存在历史宿主直连风险，
+ * 运行时信号比注释更能阻止违规使用。
+ */
+function createPrivateView<M extends ModelName>(
+  adapter: DatabaseAdapter,
+  model: M,
+  label: string
+): ModelView<ModelMap[M], InsertMap[M]> {
+  const view = createModelView(adapter, model);
+  return new Proxy(view, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && prop in target) {
+        warnPrivateViewOnce(label);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
 /** 为指定 model 创建类型化表视图 */
 export function createModelView<M extends ModelName>(
   adapter: DatabaseAdapter,
@@ -230,8 +276,8 @@ export function createDbFacade(adapter: DatabaseAdapter): DbFacade {
     user: createModelView(adapter, "user"),
     socialAccount: createModelView(adapter, "socialAccount"),
     session: createModelView(adapter, "session"),
-    oauthToken: createModelView(adapter, "oauthToken"),
-    oauthClient: createModelView(adapter, "oauthClient"),
+    oauthToken: createPrivateView(adapter, "oauthToken", "oauthToken"),
+    oauthClient: createPrivateView(adapter, "oauthClient", "oauthClient"),
 
     findOne: (params) => adapter.findOne(params),
     findMany: (params) => adapter.findMany(params),

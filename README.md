@@ -53,7 +53,7 @@ GitHub Release 发布时构建并发布 `omni-auth` 包。SDK 的版本迭代记
 
 ## 架构约束
 
-- 认证域（user / socialAccount / session / oauth_token / oauth_client 表与全部逻辑）
+- 认证域（user / socialAccount / session / oauthToken / oauthClient 表与全部逻辑）
   是 SDK 的黑盒：只经 `omni-auth` 公开 API 访问，宿主零 SQL、零表名、零事务编排。
 - 连接池由宿主注入（`PgPoolLike` 最小结构接口），SDK 不建池、不关池。
 - SDK 零依赖 `yunzone-service-kit`；接线只发生在宿主应用层（见 `apps/demo`）。
