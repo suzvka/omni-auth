@@ -6,6 +6,7 @@
 // （实例注册表），不再读取模块级全局表。
 // ============================================================
 
+import { randomUUID } from "crypto";
 import type { DatabaseAdapter } from "../adapters/database";
 import type { SocialAccountDTO } from "./types";
 import type { TokenRefresher, SocialAccountRef } from "./token";
@@ -156,8 +157,11 @@ export function createSocialService(
       }
 
       try {
+        // id 由应用层生成（与 user/session 插入一致）：autoSync 建表的
+        // socialAccount.id 无 DB DEFAULT（text PK，非序列），插入必须显式提供。
         const record = await dbf.socialAccount.create({
           data: {
+            id: randomUUID(),
             userId,
             provider: input.provider,
             providerOpenid: input.providerOpenid,

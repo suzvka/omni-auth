@@ -1,6 +1,20 @@
 # Changelog
 
-## 5.1.1（未发布）
+## 5.1.2（未发布）
+
+> **修复全新库注册必失败的问题**：`bindToUser` 插入 `socialAccount` 时未提供 `id`，
+> 而 autoSync 建出的 `socialAccount.id` 为 `TEXT NOT NULL PRIMARY KEY`（无 DB
+> DEFAULT，应用层不生成），导致全新库（autoSync 建表）上任何渠道注册/OAuth
+> 注册在插入社交账户时触发 `null value in column "id" violates not-null
+> constraint`，事务回滚、注册必失败。修复为 `bindToUser` 内应用层生成
+> `randomUUID()`（与 user/session 插入路径一致）；已存在的旧库（建表时带
+> DEFAULT 或手动管理 id）不受影响。新增回归防护：单元测试断言绑定生成 UUID
+> id，pg-mem 集成测试覆盖 autoSync 建表后 bindToUser 真实插入。
+>
+> 本版本同时包含 5.1.1 的构建产物修复（SCIM/OAuth scope 导出），5.1.1 此前
+> 未发布，随本版本一并发布。
+
+## 5.1.1（未发布，已随 5.1.2 发布）
 
 > **修复 npm 5.1.0 构建产物缺失 SCIM / OAuth scope 导出的问题**。npm 上的 5.1.0
 > 发布于 SCIM 模块与 scope 协商加入源码之前（2026-08-20 15:00 发布，16:41 引入

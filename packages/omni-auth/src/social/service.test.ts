@@ -153,6 +153,32 @@ describe("createSocialService", () => {
       expect(result.createdAt).toBeInstanceOf(Date);
     });
 
+    it("应为新社交账户生成 UUID id（应用层生成，不依赖 DB DEFAULT）", async () => {
+      // mock adapter 对缺失 id 会兜底生成 "1"、"2" 等，与真实 pg 行为不同；
+      // 断言 UUID 格式可确保 bindToUser 显式传入 id（autoSync 建表无 DEFAULT 的回归防护）
+      const result = await service.bindToUser("user_1", {
+        provider: "wechat",
+        providerOpenid: "oid_uuid",
+      });
+
+      expect(result.id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      );
+    });
+
+    it("每次绑定生成不同的 id", async () => {
+      const r1 = await service.bindToUser("user_1", {
+        provider: "wechat",
+        providerOpenid: "oid_uuid_1",
+      });
+      const r2 = await service.bindToUser("user_2", {
+        provider: "wechat",
+        providerOpenid: "oid_uuid_2",
+      });
+
+      expect(r1.id).not.toBe(r2.id);
+    });
+
     it("同一 provider+openid 重复绑定应抛 SocialAccountConflictError", async () => {
       await service.bindToUser("user_1", {
         provider: "wechat",
