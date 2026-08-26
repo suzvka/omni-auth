@@ -37,6 +37,11 @@ describe("generateDDL（SQL DDL 生成）", () => {
     expect(ddl).not.toContain('"user_email_key"');
   });
 
+  it("user 不生成 username 列（唯一键归 id，名字归 name）", () => {
+    const ddl = generateDDL(schema);
+    expect(ddl).not.toContain('"username"');
+  });
+
   it("不包含已迁出的 businessAccount 表", () => {
     const ddl = generateDDL(schema);
     expect(ddl).not.toContain("businessAccount");

@@ -1,6 +1,36 @@
 # Changelog
 
-## 5.1.4（未发布）
+## 5.2.0
+
+> **SCIM 与渠道管理解耦**。SCIM 定位为目录生命周期入口，不再管理登录渠道
+> （渠道绑定统一走宿主渠道 API）。破坏性变更。
+>
+> ### 移除（SCIM 公开 API）
+>
+> - **`ScimUser.emails`**：移除。SCIM 响应不再投影渠道属性。
+> - **`ScimCreateUserRequest.emails`**：移除。创建用户时不再通过 SCIM 绑定邮箱渠道。
+> - **SCIM `emails` schema 属性**：从 `userSchema.attributes` 移除。
+> - **`parseFilter` 对 `emails.value` 的支持**：仅保留 `userName`（唯一键投影，
+>   匹配 id）。
+>
+> ### 行为变更
+>
+> - **`userName` 改为 `readOnly`**：SCIM schema 中 `userName` 的 mutability 从
+>   `readWrite` 改为 `readOnly`，恒投影服务端 `id`（对齐 OIDC sub/name 分工）。
+> - **`createUser` 支持无渠道用户**：`UserAdminService.createUser` 的 `email`
+>   参数变为可选，缺失时仅创建 user 行不绑定渠道。
+> - **SCIM create/update/patch 不再操作渠道**：移除 `upsertEmailChannel` /
+>   `unbindFromUser` 调用，SCIM 写入只影响 user 表（name / active）。
+>
+> ### 迁移
+>
+> 宿主若通过 SCIM 管理用户邮箱，需迁移到宿主渠道 API（`auth.social` /
+> `channelVerification`）；SCIM 只负责用户生命周期（创建 / 启停 / 删除）。
+> `parseFilter` 消费方若使用 `emails.value eq "..."` 过滤，需改用 `userName`。
+>
+> 本版本基于 5.1.4（npm 已发布）。
+
+## 5.1.4
 
 > **移除邮箱验证特殊化遗留（`emailVerified` 全链路）**。`user.emailVerified`
 > 列与 `UserAdminService` 的 `emailVerified` 契约（createUser/updateUser

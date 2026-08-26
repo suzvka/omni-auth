@@ -90,6 +90,21 @@ describe("createUserAdmin", () => {
     expect(db.create).not.toHaveBeenCalled();
   });
 
+  it("createUser：无 email（无渠道用户）只创建 user 行，不绑渠道", async () => {
+    const { db, calls } = createMockAdapter();
+    const sessions = createMockSessions();
+    const admin = createUserAdmin(db, sessions);
+
+    (db.findOne as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const result = await admin.createUser({ name: "NoEmail", source: "admin" });
+
+    expect(result.userId).toBeTruthy();
+    const creates = calls.filter((c) => c.method === "create");
+    expect(creates.length).toBe(1);
+    expect((creates[0].params as { model: string }).model).toBe("user");
+  });
+
   it("updateUser：更新 name/active 并写入 user 表", async () => {
     const { db } = createMockAdapter();
     const sessions = createMockSessions();

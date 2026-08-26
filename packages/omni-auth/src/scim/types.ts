@@ -14,7 +14,6 @@ export interface ScimUser {
   id: string;
   userName: string;
   displayName?: string;
-  emails?: { value: string; primary: boolean }[];
   active: boolean;
   meta: {
     resourceType: "User";
@@ -40,9 +39,9 @@ export interface ScimErrorResponse {
 
 export interface ScimCreateUserRequest {
   schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"];
-  userName: string;
+  /** 唯一键由服务端生成（响应中 userName 恒为 id）；客户端提供时仅作为名字写入诉求的兜底（displayName 缺失时落入 name 列） */
+  userName?: string;
   displayName?: string;
-  emails?: { value: string; primary: boolean }[];
   active?: boolean;
 }
 
@@ -158,7 +157,8 @@ export function buildListResponse<T>(
 export function parseFilter(filter: string | null): { field: string; value: string } | null {
   if (!filter) return null;
 
-  const match = filter.match(/^(userName|emails(?:\.value)?)\s+eq\s+"(.+)"$/);
+  // 仅支持 userName（唯一键投影，匹配 id；未声明属性如 emails 不参与匹配）
+  const match = filter.match(/^userName\s+eq\s+"(.+)"$/);
   if (!match) return null;
 
   return { field: match[1], value: match[2] };

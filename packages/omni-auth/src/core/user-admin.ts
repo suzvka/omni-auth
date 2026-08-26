@@ -16,7 +16,8 @@ import { createSocialService } from "../social/service";
 import { normalizeUserFlag, type SessionService } from "./session";
 
 export interface CreateUserParams {
-  email: string;
+  /** 邮箱（可选：提供时绑定 email 渠道；渠道化模型下邮箱无特殊地位） */
+  email?: string;
   name: string;
   password?: string;
   active?: boolean;
@@ -39,7 +40,7 @@ export interface UserView {
 export interface UserListItem {
   id: string;
   name: string | null;
-  email: string;
+  email: string | null;
   active: boolean;
   image: string | null;
   createdAt: Date;
@@ -103,20 +104,20 @@ export function createUserAdmin(
 
   return {
     async createUser(params) {
-      const normalizedEmail = normalizeEmail(params.email);
-      const password = params.password ?? randomUUID();
-
-      // 邮箱唯一性检查（唯一约束在事务内兜底）
-      const existing = await social.findByProvider("email", normalizedEmail);
-      if (existing) {
-        throw new Error("该邮箱已被注册");
-      }
-
-      // 创建 user + email 渠道（包内事务，与 signUp 同构）
-      const hashedPassword = await hashPassword(password);
+      const hashedPassword = await hashPassword(params.password ?? randomUUID());
       const userId = randomUUID();
       const now = new Date();
 
+      // email 唯一性检查（唯一约束在事务内兜底；未提供时跳过渠道绑定）
+      const email = params.email ? normalizeEmail(params.email) : undefined;
+      if (email) {
+        const existing = await social.findByProvider("email", email);
+        if (existing) {
+          throw new Error("该邮箱已被注册");
+        }
+      }
+
+      // 创建 user +（可选）email 渠道（包内事务，与 signUp 同构）
       await withTransaction(db, async (tx) => {
         const dbf = tx;
         await dbf.create({
@@ -132,13 +133,15 @@ export function createUserAdmin(
           },
         });
 
-        await createSocialService(tx).bindToUser(userId, {
-          provider: "email",
-          providerOpenid: normalizedEmail,
-          valid: 1,
-          allowPasswordUpdate: 1,
-          allowVerification: 1,
-        });
+        if (email) {
+          await createSocialService(tx).bindToUser(userId, {
+            provider: "email",
+            providerOpenid: email,
+            valid: 1,
+            allowPasswordUpdate: 1,
+            allowVerification: 1,
+          });
+        }
       });
 
       return { userId, user: { id: userId, name: params.name } };
@@ -299,7 +302,7 @@ export function createUserAdmin(
         users.push({
           id,
           name: row.name ? String(row.name) : null,
-          email: emailMap.get(id) ?? "",
+          email: emailMap.get(id) ?? null,
           active: normalizeUserFlag(row.active, true),
           image: row.image ? String(row.image) : null,
           createdAt: new Date(String(row.createdAt)),
