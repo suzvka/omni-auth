@@ -1,4 +1,10 @@
 # Changelog
+## 5.3.0
+> **增加 location 属性支持宿主路径注入**。
+- 在 SCIM schema 中新增 location 字段，类型为 reference，非必需，只读，默认返回
+- location 字段用于表示资源 URI，依赖宿主部署路径，由宿主 /Schemas 路由表现层注入
+- 在类型定义中为 User 添加可选的 location 属性注释说明
+- 移除硬编码的 meta location 字段，改为由宿主动态注入，保持框架无关性
 
 ## 5.2.0
 

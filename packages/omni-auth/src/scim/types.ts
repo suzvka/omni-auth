@@ -19,6 +19,8 @@ export interface ScimUser {
     resourceType: "User";
     created: string;
     lastModified: string;
+    /** 资源 URI；依赖宿主部署路径，由 route 表现层注入（包保持框架无关） */
+    location?: string;
   };
 }
 

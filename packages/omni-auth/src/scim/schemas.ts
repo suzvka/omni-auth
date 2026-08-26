@@ -25,9 +25,10 @@ export const userSchema = {
       { name: "resourceType", type: "string", required: true, mutability: "readOnly", return: "always" },
       { name: "created", type: "dateTime", required: true, mutability: "readOnly", return: "always" },
       { name: "lastModified", type: "dateTime", required: true, mutability: "readOnly", return: "always" },
+      { name: "location", type: "reference", required: false, mutability: "readOnly", return: "default" },
     ]},
   ],
-  meta: { resourceType: "Schema", location: "/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:User" },
+  // meta（resourceType/location）依赖宿主部署路径，由宿主 /Schemas route 表现层注入
 } as const;
 
 /** 全部已注册 schema */
