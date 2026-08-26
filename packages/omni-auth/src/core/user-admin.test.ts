@@ -68,7 +68,6 @@ describe("createUserAdmin", () => {
     expect(creates.length).toBe(2);
     const userCreate = creates[0].params as { model: string; data: Record<string, unknown> };
     expect(userCreate.model).toBe("user");
-    expect(userCreate.data.emailVerified).toBe(0);
     expect(userCreate.data.active).toBe(1);
     const channelCreate = creates[1].params as { model: string; data: Record<string, unknown> };
     expect(channelCreate.model).toBe("socialAccount");
@@ -91,12 +90,12 @@ describe("createUserAdmin", () => {
     expect(db.create).not.toHaveBeenCalled();
   });
 
-  it("updateUser：更新 name/emailVerified/active 并写入 user 表", async () => {
+  it("updateUser：更新 name/active 并写入 user 表", async () => {
     const { db } = createMockAdapter();
     const sessions = createMockSessions();
     const admin = createUserAdmin(db, sessions);
 
-    await admin.updateUser("u-1", { name: "NewName", emailVerified: true, active: false });
+    await admin.updateUser("u-1", { name: "NewName", active: false });
 
     const updateCall = (db.updateOne as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       model: string;
@@ -104,7 +103,6 @@ describe("createUserAdmin", () => {
     };
     expect(updateCall.model).toBe("user");
     expect(updateCall.update.name).toBe("NewName");
-    expect(updateCall.update.emailVerified).toBe(1);
     expect(updateCall.update.active).toBe(0);
   });
 
@@ -146,7 +144,7 @@ describe("createUserAdmin", () => {
     expect(sessions.destroyUserSessions).toHaveBeenCalledWith("u-1");
   });
 
-  it("getUser：组装 id/name/emailVerified/active/channels", async () => {
+  it("getUser：组装 id/name/active/channels", async () => {
     const { db } = createMockAdapter();
     const sessions = createMockSessions();
     const admin = createUserAdmin(db, sessions);
@@ -154,7 +152,6 @@ describe("createUserAdmin", () => {
     (db.findOne as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "u-1",
       name: "Foo",
-      emailVerified: 1,
       active: 1,
     });
     (db.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
@@ -166,7 +163,6 @@ describe("createUserAdmin", () => {
     expect(user).toMatchObject({
       id: "u-1",
       name: "Foo",
-      emailVerified: true,
       active: true,
       channels: [
         expect.objectContaining({

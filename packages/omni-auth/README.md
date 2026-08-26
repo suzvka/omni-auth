@@ -107,7 +107,7 @@ export const auth = createQuickAuth({
 认证域共五张表（schema.ts 单一事实源）：
 
 - `user`：聚合身份 + 共享密码（`password` 可空，OAuth-only 用户无密码）
-  + 元数据列 `emailVerified` / `active`（0/1，历史库可能为 boolean，读取时归一化）
+  + 元数据列 `active`（0/1，历史库可能为 boolean，读取时归一化）
 - `socialAccount`：渠道身份（`provider + providerOpenid` 唯一），
   持有该渠道的 token / 资料 / 能力标记（valid / allowPasswordUpdate /
   allowVerification）

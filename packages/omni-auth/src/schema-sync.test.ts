@@ -105,20 +105,17 @@ describe("syncSchema", () => {
   it("缺列时执行 ADD COLUMN 并返回新增列数", async () => {
     const { pool, executed } = createMockPool({
       existingTables: ALL_TABLES,
-      // user 表缺 emailVerified / active 两列（旧库升级场景），其余表完整
+      // user 表缺 active 列（旧库升级场景），其余表完整
       existingColumns: {
         ...FULL_COLUMNS,
-        user: FULL_COLUMNS.user.filter((c) => c !== "emailVerified" && c !== "active"),
+        user: FULL_COLUMNS.user.filter((c) => c !== "active"),
       },
     });
     const result = await syncSchema(pool);
 
     expect(result.synced).toBe(true);
-    expect(result.addedColumns).toBe(2);
+    expect(result.addedColumns).toBe(1);
     const alters = executed.filter((s) => s.startsWith("ALTER TABLE"));
-    expect(alters).toContainEqual(
-      expect.stringContaining('ADD COLUMN "emailVerified" INTEGER NOT NULL DEFAULT 0')
-    );
     expect(alters).toContainEqual(
       expect.stringContaining('ADD COLUMN "active" INTEGER NOT NULL DEFAULT 1')
     );

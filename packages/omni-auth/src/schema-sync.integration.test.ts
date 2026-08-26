@@ -83,7 +83,6 @@ describe("syncSchema（pg-mem 集成）", () => {
         r.column_default,
       ])
     );
-    expect(colMap.has("emailVerified")).toBe(true);
     expect(colMap.has("active")).toBe(true);
 
     // 历史数据未被破坏

@@ -3,7 +3,7 @@
 //
 // 迁移自宿主 user_center 的 user-service.ts / user-lifecycle.ts：
 // - 邮箱唯一性 / 规范化 / 渠道更新逻辑收敛到包内
-// - emailVerified / active 成为包内用户元数据（API 数据契约）
+// - active 成为包内用户元数据（API 数据契约）
 // - 删除用户的级联规则（session / socialAccount / oauthToken / user）
 //   在包内单事务闭环，宿主不再编排
 // ============================================================
@@ -19,7 +19,6 @@ export interface CreateUserParams {
   email: string;
   name: string;
   password?: string;
-  emailVerified?: boolean;
   active?: boolean;
   source: "self" | "admin" | "scim";
 }
@@ -28,13 +27,11 @@ export interface UpdateUserParams {
   name?: string;
   email?: string;
   active?: boolean;
-  emailVerified?: boolean;
 }
 
 export interface UserView {
   id: string;
   name: string;
-  emailVerified: boolean;
   active: boolean;
   channels: unknown[];
 }
@@ -43,7 +40,6 @@ export interface UserListItem {
   id: string;
   name: string | null;
   email: string;
-  emailVerified: boolean;
   active: boolean;
   image: string | null;
   createdAt: Date;
@@ -130,7 +126,6 @@ export function createUserAdmin(
             name: params.name,
             password: hashedPassword,
             image: null,
-            emailVerified: params.emailVerified ? 1 : 0,
             active: params.active === false ? 0 : 1,
             createdAt: now,
             updatedAt: now,
@@ -185,10 +180,6 @@ export function createUserAdmin(
         }
       }
 
-      if (params.emailVerified !== undefined) {
-        updates.emailVerified = params.emailVerified ? 1 : 0;
-      }
-
       if (params.active !== undefined) {
         updates.active = params.active ? 1 : 0;
       }
@@ -231,7 +222,6 @@ export function createUserAdmin(
       return {
         id: String(record.id),
         name: String(record.name),
-        emailVerified: normalizeUserFlag(record.emailVerified),
         active: normalizeUserFlag(record.active, true),
         channels,
       };
@@ -310,7 +300,6 @@ export function createUserAdmin(
           id,
           name: row.name ? String(row.name) : null,
           email: emailMap.get(id) ?? "",
-          emailVerified: normalizeUserFlag(row.emailVerified),
           active: normalizeUserFlag(row.active, true),
           image: row.image ? String(row.image) : null,
           createdAt: new Date(String(row.createdAt)),

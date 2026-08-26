@@ -1010,7 +1010,7 @@ export class OmniAuth {
   // 用户管理（认证域私有）
   // ----------------------------------------------------------
 
-  /** 用户管理（创建 / 更新 / 查询 / 级联删除；含 emailVerified/active 元数据） */
+  /** 用户管理（创建 / 更新 / 查询 / 级联删除；含 active 元数据） */
   get users(): UserAdminService {
     return this._userAdmin;
   }

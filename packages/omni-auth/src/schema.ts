@@ -34,8 +34,6 @@ export const user = table("user", {
   name: text().notNull(),
   image: text(),
   password: text(),
-  /** 邮箱验证状态（0/1；历史库可能为 boolean，读取时归一化） */
-  emailVerified: integer().notNull().default(0),
   /** 账号启用状态（0/1；历史库可能为 boolean，读取时归一化） */
   active: integer().notNull().default(1),
   createdAt: timestamptz().notNull().default("NOW()"),
