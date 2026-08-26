@@ -1,5 +1,24 @@
 # Changelog
 
+## 5.1.4（未发布）
+
+> **移除邮箱验证特殊化遗留（`emailVerified` 全链路）**。`user.emailVerified`
+> 列与 `UserAdminService` 的 `emailVerified` 契约（createUser/updateUser
+> 参数、UserView/UserListItem 字段）为渠道化改造时未清理的 Better Auth 时代
+> 遗留：全链路无任何消费方（登录/注册/OAuth 授权均不检查），渠道归属验证已
+> 由通用机制 `socialAccount.valid` 承载。本次彻底移除：
+>
+> - `schema.ts` 删除 `emailVerified` 列（新库不再建列；schema-sync 安全策略
+>   不删列，旧库物理列保留但无消费方，待数据库迁移清理）
+> - `CreateUserParams` / `UpdateUserParams` / `UserView` / `UserListItem`
+>   移除 `emailVerified` 字段（破坏性变更，依赖该契约的宿主需同步移除读写）
+> - schema-sync 旧库升级不再 `ADD COLUMN emailVerified`
+> - 测试与文档同步收敛
+>
+> 语义不变：渠道验证状态由 `socialAccount.valid` 承载，宿主 OIDC
+> `email_verified` claim 由 email 渠道 `valid=1` 推导（见宿主 userinfo 实现）。
+> 本版本基于 5.1.3（npm 已发布于 2026-08-26）。
+
 ## 5.1.3（未发布）
 
 > **修复 OAuth 域在全新库上完全不可用的问题（5.1.2 双缺陷）**。
