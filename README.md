@@ -2,14 +2,11 @@
 
 OmniAuth — 全渠道认证 SDK（omnichannel authentication），框架无关，一等 Next.js 集成。
 
-**本仓库的定位：SDK 仓库。** 唯一的产品是 `packages/omni-auth`（npm 包 `omni-auth`）；
-`apps/demo` 只是用于开发调试 / 手动验证 SDK 行为的演示宿主，不是产品、不参与发布。
-
 ## 仓库结构
 
 ```
-onmi-auth/
-├── packages/omni-auth/   # 唯一产品：SDK 源码、CLI（bin/）、测试、发布配置
+omni-auth/
+├── packages/omni-auth/   # SDK 源码、CLI（bin/）、测试、发布配置
 │   ├── src/              # 认证域实现（schema / adapters / core / oauth / scim / nextjs）
 │   ├── bin/              # CLI：omni-auth db:push / codegen / migrate-v5
 │   ├── CHANGELOG.md      # 版本与破坏性变更记录
