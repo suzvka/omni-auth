@@ -10,7 +10,7 @@ import { randomUUID } from "crypto";
 import type { DatabaseAdapter } from "../adapters/database";
 import type { SocialAccountDTO } from "./types";
 import type { TokenRefresher, SocialAccountRef } from "./token";
-import { SocialAccountConflictError, isUniqueViolation } from "../errors";
+import { SocialAccountConflictError } from "../errors";
 import { createDbFacade } from "../models";
 import type { SocialAccountRow } from "../schema";
 
@@ -183,13 +183,9 @@ export function createSocialService(
         });
         return toDTO(record);
       } catch (err) {
-        // 并发绑定时预检查可能漏判，由唯一约束兜底并转译为冲突错误
-        if (isUniqueViolation(err)) {
-          throw new SocialAccountConflictError(
-            input.provider,
-            input.providerOpenid
-          );
-        }
+        // 唯一约束信号（UNIQUE_VIOLATION）向上透传，由调用方按意图转译：
+        // authenticateChannel 在 signUp 意图下转 UserExistsError（注册冲突即错误），
+        // upsert 转 SocialAccountConflictError（6.0.0）
         throw err;
       }
     },

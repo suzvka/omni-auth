@@ -12,6 +12,7 @@ import { createRequestContext } from "./adapters/request";
 import {
     CredentialInvalidError,
     InvalidPasswordError,
+    OmniAuthError,
     RateLimitedError,
     UserExistsError,
     WeakPasswordError,
@@ -200,14 +201,17 @@ function createTestAuth(
 // ----------------------------------------------------------
 
 describe("OmniAuth 凭证校验", () => {
-    it("signUp 创建 user + email 渠道（不创建会话令牌）", async () => {
+    it("intent: signUp 创建 user + email 渠道（不创建会话令牌）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
-        const result = await auth.signUp({
-            email: "alice@test.local",
-            password: "password123",
-            name: "Alice",
+        const result = await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "alice@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "Alice" },
+            channelData: { allowPasswordUpdate: 1, allowVerification: 1 },
         });
 
         // 返回用户信息
@@ -230,73 +234,110 @@ describe("OmniAuth 凭证校验", () => {
         expect(channels[0].allowPasswordUpdate).toBe(1);
     });
 
-    it("signUp 密码长度不足默认 8 位时拒绝（WeakPasswordError）", async () => {
+    it("intent: signUp 密码长度不足默认 8 位时拒绝（WeakPasswordError）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
-        await expect(
-            auth.signUp({ email: "short@test.local", password: "1234567", name: "Short" })
-        ).rejects.toThrow(WeakPasswordError);
-        await expect(
-            auth.signUp({ email: "short@test.local", password: "1234567", name: "Short" })
-        ).rejects.toThrow("密码长度不能少于 8 位");
+        const weakSignUp = () =>
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "short@test.local",
+                intent: "signUp",
+                credential: { type: "password", value: "1234567" },
+                profile: { name: "Short" },
+            });
+
+        await expect(weakSignUp()).rejects.toThrow(WeakPasswordError);
+        await expect(weakSignUp()).rejects.toThrow("密码长度不能少于 8 位");
     });
 
-    it("signUp 重复邮箱时拒绝", async () => {
+    it("intent: signUp 渠道重复时拒绝（注册冲突即错误）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
-        await auth.signUp({ email: "dup@test.local", password: "password123", name: "Dup1" });
-
-        await expect(
-            auth.signUp({ email: "dup@test.local", password: "password456", name: "Dup2" })
-        ).rejects.toThrow("该邮箱已被注册");
-    });
-
-    it("signUp 后 signIn 校验密码成功并返回用户", async () => {
-        const memDb = createInMemoryDb();
-        const auth = createTestAuth(memDb);
-
-        const signUpResult = await auth.signUp({
-            email: "bob@test.local",
-            password: "password123",
-            name: "Bob",
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "dup@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "Dup1" },
         });
 
-        const signInResult = await auth.signIn({
-            email: "bob@test.local",
-            password: "password123",
+        await expect(
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "dup@test.local",
+                intent: "signUp",
+                credential: { type: "password", value: "password456" },
+                profile: { name: "Dup2" },
+            })
+        ).rejects.toThrow("该渠道已被注册");
+    });
+
+    it("signUp 意图后 signIn 意图校验密码成功并返回用户", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        const signUpResult = await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "bob@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "Bob" },
+        });
+
+        const signInResult = await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "bob@test.local",
+            intent: "signIn",
+            credential: { type: "password", value: "password123" },
         });
 
         expect(signInResult.userId).toBe(signUpResult.userId);
         expect(signInResult.user.name).toBe("Bob");
+        expect(signInResult.isNewUser).toBe(false);
     });
 
-    it("signIn 密码错误时拒绝", async () => {
+    it("intent: signIn 密码错误时拒绝（统一消息防枚举）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
-        await auth.signUp({
-            email: "eve@test.local",
-            password: "password123",
-            name: "Eve",
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "eve@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "Eve" },
         });
 
         await expect(
-            auth.signIn({ email: "eve@test.local", password: "wrong-password" })
-        ).rejects.toThrow("邮箱或密码错误");
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "eve@test.local",
+                intent: "signIn",
+                credential: { type: "password", value: "wrong-password" },
+            })
+        ).rejects.toThrow("凭证或密码错误");
     });
 
-    it("signIn 邮箱不存在时拒绝（统一错误消息防枚举）", async () => {
+    it("intent: signIn 渠道不存在时拒绝且不建号（统一错误消息防枚举）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
         await expect(
-            auth.signIn({ email: "nobody@test.local", password: "password123" })
-        ).rejects.toThrow("邮箱或密码错误");
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "nobody@test.local",
+                intent: "signIn",
+                credential: { type: "password", value: "password123" },
+            })
+        ).rejects.toThrow("凭证或密码错误");
+
+        // signIn 意图绝不建号（upsert 会在此处自动注册）
+        expect(memDb.dump("user").length).toBe(0);
     });
 
-    it("signUp 触发 onUserCreated hook", async () => {
+    it("intent: signUp 触发 onUserCreated hook", async () => {
         const memDb = createInMemoryDb();
         let hookPayload: { userId: string; name?: string } | null = null;
 
@@ -308,10 +349,12 @@ describe("OmniAuth 凭证校验", () => {
             },
         });
 
-        const result = await auth.signUp({
-            email: "hook@test.local",
-            password: "password123",
-            name: "Hook",
+        const result = await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "hook@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "Hook" },
         });
 
         expect(hookPayload).not.toBeNull();
@@ -319,14 +362,16 @@ describe("OmniAuth 凭证校验", () => {
         expect(hookPayload!.name).toBe("Hook");
     });
 
-    it("signUp 不再写入 businessAccount 业务表（3.0.0 迁出 SDK，由 hooks 处理）", async () => {
+    it("intent: signUp 不再写入 businessAccount 业务表（3.0.0 迁出 SDK，由 hooks 处理）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
-        await auth.signUp({
-            email: "biz@test.local",
-            password: "password123",
-            name: "Biz",
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "biz@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "Biz" },
         });
 
         // SDK 不再创建 app 业务表记录
@@ -338,10 +383,12 @@ describe("OmniAuth 凭证校验", () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
-        await auth.signUp({
-            email: "hash@test.local",
-            password: "mypassword",
-            name: "Hash",
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "hash@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "mypassword" },
+            profile: { name: "Hash" },
         });
 
         // 从 DB 读取 user 记录（共享密码存放处）
@@ -366,24 +413,47 @@ describe("OmniAuth 凭证校验", () => {
 // ----------------------------------------------------------
 
 describe("OmniAuth 类型化错误", () => {
-    it("signUp 重复邮箱抛 UserExistsError", async () => {
+    it("intent: signUp 渠道重复抛 UserExistsError", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
-        await auth.signUp({ email: "t1@err.local", password: "password123", name: "T" });
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "t1@err.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "T" },
+        });
 
         await expect(
-            auth.signUp({ email: "t1@err.local", password: "password456", name: "T2" })
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "t1@err.local",
+                intent: "signUp",
+                credential: { type: "password", value: "password456" },
+                profile: { name: "T2" },
+            })
         ).rejects.toThrow(UserExistsError);
     });
 
-    it("signIn 密码错误抛 InvalidPasswordError（消息防枚举）", async () => {
+    it("intent: signIn 密码错误抛 InvalidPasswordError（消息防枚举）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
-        await auth.signUp({ email: "t2@err.local", password: "password123", name: "T" });
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "t2@err.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "T" },
+        });
 
         await expect(
-            auth.signIn({ email: "t2@err.local", password: "wrong" })
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "t2@err.local",
+                intent: "signIn",
+                credential: { type: "password", value: "wrong" },
+            })
         ).rejects.toThrow(InvalidPasswordError);
     });
 });
@@ -393,21 +463,33 @@ describe("OmniAuth 类型化错误", () => {
 // ----------------------------------------------------------
 
 describe("限流键", () => {
-    it("signUp 按客户端 IP 限流：同 IP 第 4 次拒绝，不同 IP 不受影响", async () => {
+    it("signUp 意图按客户端 IP 限流：同 IP 第 4 次拒绝，不同 IP 不受影响", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
         const ctxA = createRequestContext({ "x-forwarded-for": "1.1.1.1" });
         for (let i = 0; i < 3; i++) {
-            await auth.signUp(
-                { email: `rl${i}@test.local`, password: "password123", name: "RL" },
+            await auth.authenticateChannel(
+                {
+                    provider: "email",
+                    providerOpenid: `rl${i}@test.local`,
+                    intent: "signUp",
+                    credential: { type: "password", value: "password123" },
+                    profile: { name: "RL" },
+                },
                 ctxA,
             );
         }
 
         await expect(
-            auth.signUp(
-                { email: "rl3@test.local", password: "password123", name: "RL" },
+            auth.authenticateChannel(
+                {
+                    provider: "email",
+                    providerOpenid: "rl3@test.local",
+                    intent: "signUp",
+                    credential: { type: "password", value: "password123" },
+                    profile: { name: "RL" },
+                },
                 ctxA,
             )
         ).rejects.toThrow(RateLimitedError);
@@ -415,8 +497,14 @@ describe("限流键", () => {
         // 不同 IP 不受影响
         const ctxB = createRequestContext({ "x-forwarded-for": "2.2.2.2" });
         await expect(
-            auth.signUp(
-                { email: "rl3@test.local", password: "password123", name: "RL" },
+            auth.authenticateChannel(
+                {
+                    provider: "email",
+                    providerOpenid: "rl3@test.local",
+                    intent: "signUp",
+                    credential: { type: "password", value: "password123" },
+                    profile: { name: "RL" },
+                },
                 ctxB,
             )
         ).resolves.toBeTruthy();
@@ -429,7 +517,13 @@ describe("限流键", () => {
             rateLimit: { limiter: { check, reset: async () => {} } },
         });
 
-        await auth.signUp({ email: "custom@rl.local", password: "password123", name: "C" });
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "custom@rl.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "C" },
+        });
         expect(check).toHaveBeenCalled();
     });
 });
@@ -466,6 +560,133 @@ describe("authenticateChannel 非密码凭证契约", () => {
         expect(result.isNewUser).toBe(true);
         expect(result.user.name).toBe("手机用户");
         expect(result.channel.provider).toBe("phone");
+    });
+});
+
+// ----------------------------------------------------------
+// authenticateChannel 意图语义（6.0.0）
+// ----------------------------------------------------------
+
+describe("authenticateChannel 意图语义（6.0.0）", () => {
+    it("intent: signIn 非密码凭证抛 CredentialInvalidError（防凭空建号）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        await expect(
+            auth.authenticateChannel({
+                provider: "phone",
+                providerOpenid: "13800000002",
+                intent: "signIn",
+                credential: { type: "smsCode", value: "123456", verified: true },
+            })
+        ).rejects.toThrow(CredentialInvalidError);
+    });
+
+    it("intent: signUp 并发唯一约束兜底转译 UserExistsError", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "race@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "R1" },
+        });
+
+        // 模拟竞态：预检查后渠道被并发写入（反查漏判），唯一约束在事务内兜底（pg 23505）
+        const originalFindOne = memDb.findOne.bind(memDb);
+        memDb.findOne = async (args) => {
+            if (
+                args.model === "socialAccount" &&
+                args.where.some((w) => w.field === "providerOpenid" && w.value === "race@test.local")
+            ) {
+                return null;
+            }
+            return originalFindOne(args);
+        };
+        // 事务闭包持有内层适配器引用，需经 transaction 包装注入才能生效：
+        // 内层反查同样漏判，socialAccount 写入抛唯一约束冲突，模拟并发注册的第二笔写入（pg 23505）
+        const originalTx = memDb.transaction!.bind(memDb);
+        memDb.transaction = async (fn) =>
+            originalTx(async (tx) => {
+                const wrapped: DatabaseAdapter = {
+                    ...tx,
+                    findOne: async (args) => {
+                        if (
+                            args.model === "socialAccount" &&
+                            args.where.some((w) => w.field === "providerOpenid" && w.value === "race@test.local")
+                        ) {
+                            return null;
+                        }
+                        return tx.findOne(args);
+                    },
+                    create: async (args) => {
+                        if (args.model === "socialAccount") {
+                            throw new OmniAuthError("UNIQUE_VIOLATION", "duplicate key value violates unique constraint");
+                        }
+                        return tx.create(args);
+                    },
+                };
+                return fn(wrapped);
+            });
+
+        await expect(
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "race@test.local",
+                intent: "signUp",
+                credential: { type: "password", value: "password456" },
+                profile: { name: "R2" },
+            })
+        ).rejects.toThrow(UserExistsError);
+    });
+
+    it("intent: signIn 反查前即限流（不存在的渠道同样付出限流代价）", async () => {
+        const memDb = createInMemoryDb();
+        const check = vi.fn().mockResolvedValue({ allowed: false, remaining: 0, resetAt: Date.now() + 60_000 });
+        const auth = createTestAuth(memDb, {
+            rateLimit: { limiter: { check, reset: async () => {} } },
+        });
+
+        await expect(
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "probe@test.local",
+                intent: "signIn",
+                credential: { type: "password", value: "whatever" },
+            })
+        ).rejects.toThrow(RateLimitedError);
+
+        // 限流键形如 signIn:ip:provider:openid
+        expect(check).toHaveBeenCalledWith(
+            expect.stringContaining("signIn:"),
+            expect.any(Number),
+            expect.any(Number),
+        );
+    });
+
+    it("默认 upsert 行为不变：渠道已存在时直接登录（不抛冲突）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        const created = await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "upsert@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "U" },
+        });
+
+        const logged = await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "upsert@test.local",
+            credential: { type: "password", value: "password123" },
+        });
+
+        expect(logged.isNewUser).toBe(false);
+        expect(logged.userId).toBe(created.userId);
+        expect(memDb.dump("user").length).toBe(1);
     });
 });
 
@@ -555,10 +776,12 @@ describe("事务原子性（3.0.0）", () => {
             baseUrl: "http://localhost:3000",
         });
 
-        const result = await auth.signUp({
-            email: "notx@test.local",
-            password: "password123",
-            name: "NoTx",
+        const result = await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "notx@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "NoTx" },
         });
 
         expect(result.userId).toBeTruthy();
@@ -617,16 +840,27 @@ describe("密码策略（4.1.0）", () => {
             passwordPolicy: { minLength: 8 },
         });
 
-        await expect(
-            auth.signUp({ email: "p7@test.local", password: "1234567", name: "P" })
-        ).rejects.toThrow(WeakPasswordError);
-        await expect(
-            auth.signUp({ email: "p7@test.local", password: "1234567", name: "P" })
-        ).rejects.toThrow("密码长度不能少于 8 位");
+        const weakSignUp = () =>
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "p7@test.local",
+                intent: "signUp",
+                credential: { type: "password", value: "1234567" },
+                profile: { name: "P" },
+            });
+
+        await expect(weakSignUp()).rejects.toThrow(WeakPasswordError);
+        await expect(weakSignUp()).rejects.toThrow("密码长度不能少于 8 位");
 
         // 8 位通过
         await expect(
-            auth.signUp({ email: "p8@test.local", password: "12345678", name: "P" })
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "p8@test.local",
+                intent: "signUp",
+                credential: { type: "password", value: "12345678" },
+                profile: { name: "P" },
+            })
         ).resolves.toBeTruthy();
     });
 
@@ -651,7 +885,13 @@ describe("密码策略（4.1.0）", () => {
         const auth = createTestAuth(memDb);
 
         await expect(
-            auth.signUp({ email: "p8@test.local", password: "12345678", name: "P" })
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "p8@test.local",
+                intent: "signUp",
+                credential: { type: "password", value: "12345678" },
+                profile: { name: "P" },
+            })
         ).resolves.toBeTruthy();
     });
 });
@@ -673,8 +913,19 @@ describe("限流加固（4.1.0）", () => {
             },
         });
 
-        await auth.signUp({ email: "reset@rl.local", password: "password123", name: "R" });
-        await auth.signIn({ email: "reset@rl.local", password: "password123" });
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "reset@rl.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "R" },
+        });
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "reset@rl.local",
+            intent: "signIn",
+            credential: { type: "password", value: "password123" },
+        });
 
         expect(reset).toHaveBeenCalledWith(expect.stringContaining("signIn:"));
     });
@@ -691,9 +942,20 @@ describe("限流加固（4.1.0）", () => {
             },
         });
 
-        await auth.signUp({ email: "fail@rl.local", password: "password123", name: "F" });
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "fail@rl.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "F" },
+        });
         await expect(
-            auth.signIn({ email: "fail@rl.local", password: "wrong" })
+            auth.authenticateChannel({
+                provider: "email",
+                providerOpenid: "fail@rl.local",
+                intent: "signIn",
+                credential: { type: "password", value: "wrong" },
+            })
         ).rejects.toThrow(InvalidPasswordError);
 
         expect(reset).not.toHaveBeenCalled();
@@ -749,14 +1011,26 @@ describe("限流加固（4.1.0）", () => {
 
         // 请求头各不相同，但自定义解析器统一返回 9.9.9.9 → 同键限流
         for (let i = 0; i < 3; i++) {
-            await auth.signUp(
-                { email: `ip${i}@inj.local`, password: "password123", name: "I" },
+            await auth.authenticateChannel(
+                {
+                    provider: "email",
+                    providerOpenid: `ip${i}@inj.local`,
+                    intent: "signUp",
+                    credential: { type: "password", value: "password123" },
+                    profile: { name: "I" },
+                },
                 createRequestContext({ "x-forwarded-for": `10.0.0.${i}` }),
             );
         }
         await expect(
-            auth.signUp(
-                { email: "ip3@inj.local", password: "password123", name: "I" },
+            auth.authenticateChannel(
+                {
+                    provider: "email",
+                    providerOpenid: "ip3@inj.local",
+                    intent: "signUp",
+                    credential: { type: "password", value: "password123" },
+                    profile: { name: "I" },
+                },
                 createRequestContext({ "x-forwarded-for": "10.0.0.99" }),
             )
         ).rejects.toThrow(RateLimitedError);

@@ -1,4 +1,62 @@
 # Changelog
+## 6.0.0
+> **authenticateChannel 意图化：消灭邮箱特例**。认证入口收敛为唯一的
+> `authenticateChannel`，注册/登录语义由 `intent` 表达；`signUp` / `signIn`
+> 邮箱硬编码便捷方法移除。破坏性变更。
+>
+> ### 移除（公开 API）
+>
+> - **`OmniAuth.signUp` / `OmniAuth.signIn`**：移除。迁移到 `authenticateChannel`
+>   + `intent: "signUp" | "signIn"`。
+> - **`SignUpInput` / `SignUpResult` / `SignInInput` / `SignInResult` 类型**：移除，
+>   由 `ChannelAuthInput` / `ChannelAuthResult` 统一承载。
+>
+> ### 新增（`ChannelAuthInput.intent`，默认 `"upsert"`）
+>
+> - **`"signUp"`：注册冲突即错误**。渠道已存在抛 `UserExistsError`，不再静默
+>   降级为登录（修复宿主预检查拼凑注册语义的 TOCTOU 竞态：竞态窗口内注册请求
+>   会被兑现为对已有账号的登录）。并发场景下唯一约束兜底（pg 23505）同样转译为
+>   `UserExistsError`。
+> - **`"signIn"`：渠道不存在即失败**。抛 `InvalidPasswordError`（统一消息防枚举）
+>   + `signInFailed` 审计，绝不建号；仅接受密码凭证（非密码凭证配 `signIn`
+>   抛 `CredentialInvalidError`，防凭 `verified` 标记凭空建号）；限流在渠道反查前
+>   生效，已存在/不存在渠道的枚举试探付出同等代价。
+> - **`"upsert"`（默认）**：保持 5.x 行为（不存在则注册，已存在则登录），
+>   OAuth 回调 / 管理侧建号等场景不变。
+>
+> ### 行为变更
+>
+> - **`UserExistsError` 默认消息去邮箱化**：「该邮箱已被注册」→「该渠道已被注册」
+>   （类名与 `code=USER_EXISTS` 不变）。
+> - **`omni-auth/nextjs` 子入口补出 `UserExistsError`**（注册冲突捕获需要）。
+> - **渠道能力标记默认值差异**：旧 `signUp` 默认 `allowPasswordUpdate=1` /
+>   `allowVerification=1`；`authenticateChannel` 注册分支默认均为 `0`，需经
+>   `channelData` 显式声明。
+> - **统一错误消息**：登录失败消息统一为「凭证或密码错误」（原 `signIn` 的
+>   「邮箱或密码错误」随方法移除）。
+>
+> ### 迁移
+>
+> ```ts
+> // 5.x
+> await auth.signUp({ email, password, name });
+> await auth.signIn({ email, password });
+> // 6.0.0
+> await auth.authenticateChannel({
+>   provider: "email", providerOpenid: email, intent: "signUp",
+>   credential: { type: "password", value: password },
+>   profile: { name },
+>   channelData: { allowPasswordUpdate: 1, allowVerification: 1 }, // 需保持旧默认时显式声明
+> });
+> await auth.authenticateChannel({
+>   provider: "email", providerOpenid: email, intent: "signIn",
+>   credential: { type: "password", value: password },
+> });
+> ```
+>
+> 宿主注册流程可删除自建的 `auth.social.findByProvider` 预检查（库内已按意图强制，
+> 且唯一约束在事务内兜底）。
+
 ## 5.3.0
 > **增加 location 属性支持宿主路径注入**。
 - 在 SCIM schema 中新增 location 字段，类型为 reference，非必需，只读，默认返回

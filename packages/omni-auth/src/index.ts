@@ -10,10 +10,7 @@ export type {
   OmniAuthConfig,
   OmniAuthRateLimitConfig,
   OmniAuthPasswordPolicy,
-  SignUpInput,
-  SignUpResult,
-  SignInInput,
-  SignInResult,
+  ChannelAuthIntent,
   ChannelAuthInput,
   ChannelAuthResult,
 } from "./auth";

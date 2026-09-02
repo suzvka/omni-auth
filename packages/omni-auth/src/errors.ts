@@ -52,9 +52,9 @@ export class RateLimitedError extends OmniAuthError {
   }
 }
 
-/** 用户已存在（如邮箱已注册） */
+/** 注册冲突：渠道已注册（6.0.0 起去邮箱化，适用全渠道） */
 export class UserExistsError extends OmniAuthError {
-  constructor(message = "该邮箱已被注册") {
+  constructor(message = "该渠道已被注册") {
     super("USER_EXISTS", message);
     this.name = "UserExistsError";
   }

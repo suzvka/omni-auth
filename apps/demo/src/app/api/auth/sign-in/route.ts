@@ -1,6 +1,6 @@
 // ============================================================
 // POST /api/auth/sign-in
-// 邮箱登录：仅凭证校验（用户存在 + 密码正确），不建立会话
+// 邮箱渠道登录：仅凭证校验（用户存在 + 密码正确），不建立会话（6.0.0：authenticateChannel + intent）
 // ============================================================
 
 import { headers } from "next/headers";
@@ -30,9 +30,17 @@ export async function POST(request: Request) {
             );
         }
 
-        // 传入请求上下文：限流按 ip:email 复合键生效
+        // 传入请求上下文：限流按 ip:provider:openid 复合键生效
         const ctx = nextjsRequestContext(await headers());
-        const result = await auth.signIn({ email, password }, ctx);
+        const result = await auth.authenticateChannel(
+            {
+                provider: "email",
+                providerOpenid: email,
+                intent: "signIn",
+                credential: { type: "password", value: password },
+            },
+            ctx,
+        );
 
         return NextResponse.json({ success: true, user: result.user });
     } catch (err) {

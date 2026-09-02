@@ -35,6 +35,7 @@ export {
   UnauthorizedError,
   InvalidPasswordError,
   SocialAccountConflictError,
+  UserExistsError,
   WeakPasswordError,
 } from "../errors";
 

@@ -1,6 +1,6 @@
 // ============================================================
 // POST /api/auth/sign-up
-// 邮箱注册：创建用户，不建立会话
+// 邮箱渠道注册：创建用户，不建立会话（6.0.0：authenticateChannel + intent）
 // ============================================================
 
 import { headers } from "next/headers";
@@ -33,7 +33,17 @@ export async function POST(request: Request) {
 
         // 传入请求上下文：限流按客户端 IP 生效
         const ctx = nextjsRequestContext(await headers());
-        const result = await auth.signUp({ email, password, name }, ctx);
+        const result = await auth.authenticateChannel(
+            {
+                provider: "email",
+                providerOpenid: email,
+                intent: "signUp",
+                credential: { type: "password", value: password },
+                profile: { name },
+                channelData: { allowPasswordUpdate: 1, allowVerification: 1 },
+            },
+            ctx,
+        );
 
         return NextResponse.json({ success: true, user: result.user });
     } catch (err) {

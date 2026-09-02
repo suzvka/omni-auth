@@ -17,7 +17,7 @@
 - [快速开始](#快速开始)
 - [指南](#指南)
   - [渠道模型（全渠道平权）](#渠道模型全渠道平权)
-  - [认证入口（signUp / signIn / authenticateChannel）](#认证入口signup--signin--authenticatechannel)
+  - [认证入口（authenticateChannel 与 intent）](#认证入口authenticatechannel-与-intent)
   - [认证域语义 API](#认证域语义-api)
   - [外部 OAuth Provider 登录](#外部-oauth-provider-登录)
   - [渠道验证码（委托模式）](#渠道验证码委托模式)
@@ -67,29 +67,31 @@ omni-auth 的回答是**认证域黑盒 + 全渠道平权 + 语义 API + 单一�
 | **令牌权威委托** | access token 签发 / 校验 / 续期 / 吊销委托宿主的 `TokenAuthorityClient`（如集群证书服务），包内不实现令牌加密。 | `config.tokenAuthority` |
 | **实例级注册表** | OAuth provider / 验证码 sender·verifier / token refresher / 审计处理器均为实例成员，多实例互不干扰。 | `OmniRegistry` |
 
-**渠道平权**是理解 omni-auth 的关键：不存在「邮箱用户」和「社交用户」之分，只有「聚合身份 `user` + 若干渠道 `socialAccount`」。`signUp` / `signIn` 只是 email 渠道的便捷方法，其余渠道一律走 `authenticateChannel`。
+**渠道平权**是理解 omni-auth 的关键：不存在「邮箱用户」和「社交用户」之分，只有「聚合身份 `user` + 若干渠道 `socialAccount`」。全部渠道一律走唯一认证入口 `authenticateChannel`，注册/登录语义由 `intent` 表达（6.0.0 起邮箱硬编码的 `signUp` / `signIn` 便捷方法已移除）。
 
 ---
 
 ## 数据流：一次认证发生了什么
 
 ```
-凭证（email/password 或 渠道 credential）
-  │  ▸ 速率限制（signUp 按 ip；signIn 按 ip:provider:openid）
+凭证（password 或 渠道 credential）
+  │  ▸ 速率限制（signUp 意图按 ip；signIn 意图按 ip:provider:openid，反查前生效）
   │  ▸ 密码策略校验 / 非密码凭证契约校验（verified 必须为 true）
   ▼
 渠道反查 socialAccount (provider, providerOpenid)
   │  不存在 → 事务写入 user + socialAccount ── commit ──▶ onUserCreated 钩子
+  │  │          （signIn 意图：不建号，统一消息失败）
   │  已存在 → 反查 user（密码凭证走 verifyPassword；非密码凭证信任调用方）
+  │  │          （signUp 意图：注册冲突即错误，不降级为登录）
   ▼
 审计事件（signUp / signIn / signInFailed）
   ▼
-返回 { userId, user }
+返回 { userId, user, isNewUser, channel }
 ```
 
 - **多表写入原子化**：注册（`user` + `socialAccount`）与删用户级联（`session` / `socialAccount` / `oauthToken` / `user`）包入 `DatabaseAdapter.transaction`，任一步失败整体回滚；适配器未实现事务时回退顺序写入并**仅警告一次**。
 - **钩子在 commit 之后触发**：`onUserCreated` 不会看到未提交的数据，其失败仅记录、不影响认证结果。
-- **枚举防护**：`signIn` 无论「无渠道 / 无用户 / 密码错」都抛统一消息「邮箱或密码错误」；`signUp` 邮箱重复则有意返回明文提示（注册场景需即时反馈）。
+- **枚举防护**：`signIn` 意图无论「无渠道 / 无用户 / 密码错」都抛统一消息「凭证或密码错误」；`signUp` 意图渠道已存在则有意返回明文提示（注册场景需即时反馈）。
 
 外部 OAuth Provider 回调另有独立链路：`auth.oauth.initiateOAuth()` 发起（保存签名 `state` / PKCE `codeVerifier`）→ `auth.handleOAuthCallback()` 库内强制比对 `state` → 换 token → `authenticateChannel` 落库/登录。
 
@@ -121,9 +123,16 @@ export const auth = createQuickAuth({
   autoSync: true,
 });
 
-// —— 凭证校验（email 渠道便捷方法）——
-await auth.signUp({ email, password, name });
-await auth.signIn({ email, password });
+// —— 凭证校验（唯一认证入口：authenticateChannel + intent）——
+await auth.authenticateChannel({
+  provider: "email", providerOpenid: email, intent: "signUp",
+  credential: { type: "password", value: password },
+  profile: { name },
+});
+await auth.authenticateChannel({
+  provider: "email", providerOpenid: email, intent: "signIn",
+  credential: { type: "password", value: password },
+});
 
 // —— 认证域语义 API ——
 await auth.sessions.createSession(userId);            // 会话
@@ -160,15 +169,17 @@ npx omni-auth db:push
 - 任何渠道密码登录都验证同一个 `user.password`（共享密码）；
 - OAuth 新用户不再生成随机密码，`password = null`，后续可经渠道验证码从无到有设置。
 
-### 认证入口（signUp / signIn / authenticateChannel）
+### 认证入口（authenticateChannel 与 intent）
 
-| 方法 | 场景 | 说明 |
+`authenticateChannel` 是全渠道唯一认证入口，注册/登录语义由 `intent` 表达（默认 `"upsert"`）：
+
+| intent | 场景 | 说明 |
 | --- | --- | --- |
-| `signUp(input, ctx?)` | email 渠道注册 | 事务创建 `user` + email 渠道（`valid=1`）；邮箱重复抛 `UserExistsError`；按 IP 限流 |
-| `signIn(input, ctx?)` | email 渠道登录 | 渠道反查用户 → 验共享密码；统一错误消息防枚举；成功后重置限流计数 |
-| `authenticateChannel(input, ctx?)` | **全渠道统一入口** | 渠道不存在则新建用户 + 绑定，已存在则登录；其余渠道一律走此方法 |
+| `"signUp"` | 注册 | 渠道已存在抛 `UserExistsError`（注册冲突即错误，不静默降级为登录）；事务创建 `user` + 渠道；按 IP 限流；并发由唯一约束兜底 |
+| `"signIn"` | 登录 | 仅密码凭证；渠道不存在抛 `InvalidPasswordError`（统一消息防枚举），绝不建号；限流键 `ip:provider:openid`，反查前生效；成功后重置计数 |
+| `"upsert"`（默认） | 不存在则创建 | 渠道不存在则新建用户 + 绑定，已存在则登录；OAuth 回调 / 管理侧建号等场景 |
 
-**非密码凭证契约**：`authenticateChannel` 对 `smsCode` / `oauthCode` 等凭证**不代为验证**，调用方必须预先验证并显式声明 `credential.verified = true`，否则抛 `CredentialInvalidError`。这是有意设计——库不假装能验证它无法验证的东西。
+**非密码凭证契约**：`authenticateChannel` 对 `smsCode` / `oauthCode` 等凭证**不代为验证**，调用方必须预先验证并显式声明 `credential.verified = true`，否则抛 `CredentialInvalidError`。这是有意设计——库不假装能验证它无法验证的东西。`intent: "signIn"` 更仅接受密码凭证，防止凭 `verified` 标记绕过密码校验凭空建号。
 
 ```ts
 await auth.authenticateChannel({
@@ -277,12 +288,12 @@ export const auth = createQuickAuth({
 
 | 接口 | 键 | 默认策略 |
 | --- | --- | --- |
-| `signUp` | 客户端 IP | 3 次 / 1 小时 |
-| `signIn` | `ip:provider:openid` | 5 次 / 15 分钟（成功后重置计数） |
+| `intent: "signUp"` 注册分支 | 客户端 IP | 3 次 / 1 小时 |
+| `intent: "signIn"` / upsert 登录分支 | `ip:provider:openid` | 5 次 / 15 分钟（成功后重置计数；signIn 意图在反查前生效） |
 | `passwordReset` | `ip:provider:openid` | 3 次 / 10 分钟 |
 | `verifyChannelCode` | `provider:openid` | 默认关闭，opt-in |
 
-`signUp` 按 IP 而非邮箱限流，防止攻击者消耗受害者邮箱配额、锁死其注册的 DoS。
+注册限流按 IP 而非渠道标识，防止攻击者消耗受害者渠道标识配额、锁死其注册的 DoS。
 
 ### 令牌权威委托（TokenAuthorityClient）
 
@@ -315,7 +326,12 @@ import { NextResponse } from "next/server";
 
 // 登录：把 requestContext 传入以启用按 IP 限流，会话 cookie 写入 Response
 const ctx = nextjsRequestContext(await headers());
-const { userId } = await auth.signIn({ email, password }, ctx);
+const { userId } = await auth.authenticateChannel({
+  provider: "email",
+  providerOpenid: email,
+  intent: "signIn",
+  credential: { type: "password", value: password },
+}, ctx);
 const { token } = await auth.sessions.createSession(userId);
 const response = NextResponse.json({ ok: true });
 setSessionCookie(response, token);   // HttpOnly / SameSite=Lax（生产加 Secure）
@@ -338,7 +354,7 @@ const uid = token ? await auth.sessions.validateSession(token) : null;
 | --- | --- | --- |
 | `UnauthorizedError` | 由构造传入 | RBAC 校验失败（`requireRole` / `requireAnyRole`） |
 | `InvalidPasswordError` | `INVALID_PASSWORD` | 密码错误（消息统一防枚举） |
-| `UserExistsError` | `USER_EXISTS` | 邮箱渠道已注册 |
+| `UserExistsError` | `USER_EXISTS` | 注册冲突：渠道已注册（`intent: "signUp"`） |
 | `SocialAccountConflictError` | `SOCIAL_ACCOUNT_CONFLICT` | 渠道已被其他用户绑定 |
 | `WeakPasswordError` | `WEAK_PASSWORD` | 密码长度不足（默认最短 8） |
 | `CredentialInvalidError` | `CREDENTIAL_INVALID` | 非密码凭证未声明 `verified=true` |
@@ -394,7 +410,7 @@ CLI（`bin/`）：
 
 | 成员 | 说明 |
 | --- | --- |
-| `signUp` / `signIn` / `authenticateChannel` | 认证入口（见指南） |
+| `authenticateChannel`（`intent: "signUp" / "signIn" / "upsert"`） | 全渠道唯一认证入口（见指南） |
 | `requestPasswordReset` / `resetPassword` | 密码重置（委托渠道验证码） |
 | `requestChannelCode` / `verifyChannelCode` | 渠道验证码（委托 sender / verifier） |
 | `registerOAuthProvider` / `oauth` / `handleOAuthCallback` | 外部 OAuth 登录 |
@@ -403,19 +419,6 @@ CLI（`bin/`）：
 | `sessions` / `users` / `oauthServer` / `scim` / `social` | 认证域语义 API 命名空间 |
 | `db` | 类型化数据访问门面（`db.user.*` / `db.socialAccount.*`，认证域内部使用） |
 | `OmniAuth.hasRole` 等静态方法 | RBAC 检查 |
-
----
-
-## 设计原则
-
-- **认证域黑盒**：整个认证域（五表 + 全部逻辑）包内私有，宿主只经语义 API 访问，零 SQL、零表名、零事务编排。
-- **全渠道平权**：邮箱是普通渠道，代码只关心抽象「渠道」，从不存在渠道特判——占位邮箱 / 随机密码 / 手机合成邮箱等特化机制全部消亡。
-- **schema 单一事实源**：表结构只定义一次，TS 类型 / DDL / Prisma 均派生；改表只改 `schema.ts`，`autoSync` 与 `db:push` 同源。
-- **连接池单一来源（宿主注入）**：SDK 不建池、不关池，认证域与业务域共享同一池，类型上以最小结构 `PgPoolLike` 解耦（零依赖 kit）。
-- **令牌权威委托**：access token 算法委托外部证书服务，包内不实现加密；未注入即明确报错，绝不静默降级。
-- **多表写入原子化**：注册与级联删除包入事务，钩子在 commit 后触发；适配器无事务时回退顺序写入并警告。
-- **安全默认**：`signIn` 防枚举、`signUp` 按 IP 限流防 DoS、OAuth `state` 库内强制比对、非密码凭证契约显式化。
-- **构建期不碰库**：生产构建阶段自动跳过 `autoSync`，避免构建环境无 DB 凭证时阻断。
 
 ---
 

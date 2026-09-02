@@ -117,7 +117,7 @@ export function createUserAdmin(
         }
       }
 
-      // 创建 user +（可选）email 渠道（包内事务，与 signUp 同构）
+      // 创建 user +（可选）email 渠道（包内事务，与 authenticateChannel 注册分支同构）
       await withTransaction(db, async (tx) => {
         const dbf = tx;
         await dbf.create({

@@ -22,9 +22,16 @@ export const auth = createQuickAuth({
   autoSync: true,
 });
 
-// 注册 / 登录（凭证校验）
-await auth.signUp({ email, password, name });
-await auth.signIn({ email, password });
+// 注册 / 登录（凭证校验，6.0.0 起唯一认证入口：authenticateChannel + intent）
+await auth.authenticateChannel({
+  provider: "email", providerOpenid: email, intent: "signUp",
+  credential: { type: "password", value: password },
+  profile: { name },
+});
+await auth.authenticateChannel({
+  provider: "email", providerOpenid: email, intent: "signIn",
+  credential: { type: "password", value: password },
+});
 
 // 认证域语义 API
 await auth.sessions.createSession(userId);        // 会话

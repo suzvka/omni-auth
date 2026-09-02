@@ -70,9 +70,9 @@ export interface OmniAuthRateLimitConfig {
    * 防止攻击者伪造请求头绕过基于 IP 的限流。
    */
   getClientIp?: (ctx?: RequestContext | null) => string;
-  /** 登录：默认 5 次 / 15 分钟（键 = ip:email，成功后重置计数） */
+  /** 登录：默认 5 次 / 15 分钟（键 = ip:provider:openid，成功后重置计数） */
   signIn?: { maxAttempts: number; windowMs: number };
-  /** 注册：默认 3 次 / 1 小时（键 = ip，防按邮箱锁死注册） */
+  /** 注册：默认 3 次 / 1 小时（键 = ip，防按渠道锁死注册） */
   signUp?: { maxAttempts: number; windowMs: number };
   /** 密码重置：默认 3 次 / 10 分钟 */
   passwordReset?: { maxAttempts: number; windowMs: number };
@@ -116,59 +116,27 @@ export interface OmniAuthConfig {
 }
 
 // ----------------------------------------------------------
-// 用户管理 API 的输入/输出类型
-// ----------------------------------------------------------
-
-export interface SignUpInput {
-  /** 邮箱地址（email 渠道标识符） */
-  email: string;
-  password: string;
-  name: string;
-  /**
-   * email 渠道的通道数据（可选）。
-   *
-   * signUp 固定创建 email 渠道（provider="email", providerOpenid=邮箱地址）；
-   * channel 提供该渠道的 token / 资料 / 能力标记，与 user 同事务原子写入。
-   * 其他渠道注册请使用 authenticateChannel（全渠道平权）。
-   */
-  channel?: {
-    accessToken?: string;
-    refreshToken?: string;
-    tokenExpiresAt?: Date | number;
-    profileData?: Record<string, unknown>;
-    valid?: number;
-    allowPasswordUpdate?: number;
-    allowVerification?: number;
-  };
-}
-
-export interface SignUpResult {
-  userId: string;
-  /** 创建后的完整用户信息 */
-  user: PublicUser;
-}
-
-export interface SignInInput {
-  /** 邮箱地址（email 渠道标识符） */
-  email: string;
-  password: string;
-}
-
-export interface SignInResult {
-  userId: string;
-  /** 登录后的完整用户信息 */
-  user: PublicUser;
-}
-
-// ----------------------------------------------------------
 // 统一通道认证 — ChannelAuthInput / ChannelAuthResult
 // ----------------------------------------------------------
+
+/** 认证意图：注册（冲突即错误）/ 登录（不存在即失败）/ upsert（不存在则创建） */
+export type ChannelAuthIntent = "signUp" | "signIn" | "upsert";
 
 export interface ChannelAuthInput {
   /** 通道类型，如 "email" / "phone" / "wechat" */
   provider: string;
   /** 通道标识符（邮箱地址、手机号、openid 等） */
   providerOpenid: string;
+  /**
+   * 认证意图（6.0.0，默认 "upsert"）。
+   *
+   * - "signUp"：注册——渠道已存在抛 UserExistsError（注册冲突即错误，不静默降级为登录）；
+   * - "signIn"：登录——渠道不存在抛 InvalidPasswordError（统一消息防枚举），
+   *   且仅接受密码凭证；
+   * - "upsert"：不存在则注册 + 绑定，已存在则直接登录（OAuth 回调 /
+   *   管理侧建号等「不存在则创建」场景）。
+   */
+  intent?: ChannelAuthIntent;
   /** 凭证 */
   credential: {
     /** 凭证类型："password" | "oauthCode" | "smsCode" 等 */
@@ -351,7 +319,7 @@ export class OmniAuth {
     });
 
     // ----------------------------------------------------------
-    // 收集 user.create.after hooks（signUp / OAuth 回调，事务提交后触发）
+    // 收集 user.create.after hooks（渠道注册 / OAuth 回调，事务提交后触发）
     // ----------------------------------------------------------
 
     if (config.hooks?.onUserCreated) {
@@ -396,7 +364,7 @@ export class OmniAuth {
     providerOpenid: string,
     passwordHash: string | null,
     name: string,
-    channelData?: SignUpInput["channel"],
+    channelData?: ChannelAuthInput["channelData"],
     tx?: DatabaseAdapter
   ): Promise<string> {
     const dbf = createDbFacade(tx ?? this.config.database);
@@ -462,159 +430,19 @@ export class OmniAuth {
   }
 
   // ----------------------------------------------------------
-  // 用户认证
+  // 统一通道认证（唯一认证入口，见 authenticateChannel 的 intent 语义）
   // ----------------------------------------------------------
 
   /**
-   * 邮箱渠道注册（便捷方法）。
+   * 统一通道认证入口（全渠道唯一认证入口）。
    *
-   * 内部等价于渠道化注册：创建 user（共享密码哈希）+ email 渠道记录
-   * (provider="email", providerOpenid=邮箱地址, valid=1)。
-   *
-   * @param input 注册信息
-   * @param requestContext 可选请求上下文（提供时按客户端 IP 限流）
-   * @throws UserExistsError 邮箱渠道已注册
-   * @throws RateLimitedError 超过限流
-   */
-  async signUp(input: SignUpInput, requestContext?: RequestContext): Promise<SignUpResult> {
-    // 0. 速率限制：键为客户端 IP（防按渠道锁死注册的 DoS）
-    const ip = this._getClientIp(requestContext);
-    await checkRateLimit(
-      this._rateLimiter,
-      `signUp:${ip}`,
-      this._signUpLimit.maxAttempts,
-      this._signUpLimit.windowMs
-    );
-
-    // 1. 验证密码长度（策略可经 config.passwordPolicy 收紧）
-    if (input.password.length < this._passwordMinLength) {
-      throw new WeakPasswordError(`密码长度不能少于 ${this._passwordMinLength} 位`);
-    }
-
-    // 2. 检查邮箱渠道是否已注册（友好提示；唯一约束在事务内兜底）
-    const existingChannel = await this._socialService.findByProvider("email", input.email);
-    if (existingChannel) {
-      throw new UserExistsError("该邮箱已被注册");
-    }
-
-    // 3. 哈希密码（事务外执行，避免 CPU 密集操作撑开事务）
-    const hashedPassword = await hashPassword(input.password);
-
-    // email 渠道的通道数据（扩展字段随注册同事务原子写入；真实登记 valid=1）
-    const channelData = {
-      accessToken: input.channel?.accessToken,
-      refreshToken: input.channel?.refreshToken,
-      tokenExpiresAt: input.channel?.tokenExpiresAt,
-      profileData: input.channel?.profileData,
-      valid: input.channel?.valid ?? 1,
-      allowPasswordUpdate: input.channel?.allowPasswordUpdate ?? 1,
-      allowVerification: input.channel?.allowVerification ?? 1,
-    };
-
-    // 4. 事务创建 user + email 渠道记录
-    let userId: string;
-    try {
-      userId = await this._withTransaction((tx) =>
-        this._createUserWithChannel(
-          "email",
-          input.email,
-          hashedPassword,
-          input.name,
-          channelData,
-          tx
-        )
-      );
-    } catch (err) {
-      // 并发注册时预检查可能漏判，由唯一约束兜底并转译为友好错误
-      if (isUniqueViolation(err)) {
-        throw new UserExistsError("该邮箱已被注册");
-      }
-      throw err;
-    }
-
-    // 5. 事务提交后触发 user.create.after 钩子
-    await this._fireUserCreatedHooks({ id: userId, name: input.name });
-
-    await this._publishAudit({ action: "signUp", userId, ip });
-
-    // 6. 读取完整用户信息并返回
-    const user = await this._readPublicUser(userId);
-
-    return {
-      userId,
-      user,
-    };
-  }
-
-  /**
-   * 邮箱渠道登录（便捷方法）。
-   *
-   * 内部等价于渠道化登录：email 渠道记录反查用户 → 验证共享密码。
-   *
-   * @param input 登录信息
-   * @param requestContext 可选请求上下文（提供时按 ip:provider:providerOpenid 限流）
-   * @throws InvalidPasswordError 邮箱或密码错误（统一消息防枚举）
-   * @throws RateLimitedError 超过限流
-   */
-  async signIn(input: SignInInput, requestContext?: RequestContext): Promise<SignInResult> {
-    // 0. 速率限制：键为 ip:provider:providerOpenid 复合
-    const ip = this._getClientIp(requestContext);
-    const limitKey = `signIn:${ip}:email:${input.email}`;
-    await checkRateLimit(
-      this._rateLimiter,
-      limitKey,
-      this._signInLimit.maxAttempts,
-      this._signInLimit.windowMs
-    );
-
-    // 1. 通过 email 渠道反查用户
-    const channel = await this._socialService.findByProvider("email", input.email);
-    const user = channel
-      ? await this.db.user.findOne({ where: [{ field: "id", value: channel.userId }] })
-      : null;
-
-    // 2. 统一错误消息防枚举（无渠道 / 无用户 / 无密码一致）
-    if (!user || !user.password) {
-      await this._publishAudit({
-        action: "signInFailed",
-        ip,
-        metadata: { provider: "email", providerOpenid: input.email },
-      });
-      throw new InvalidPasswordError("邮箱或密码错误");
-    }
-
-    // 3. 校验共享密码
-    const isValid = await verifyPassword(user.password, input.password);
-    if (!isValid) {
-      await this._publishAudit({
-        action: "signInFailed",
-        ip,
-        metadata: { provider: "email", providerOpenid: input.email },
-      });
-      throw new InvalidPasswordError("邮箱或密码错误");
-    }
-
-    // 登录成功：重置限流计数（历史失败不应锁死合法用户）
-    await this._safeResetRateLimit(limitKey);
-
-    await this._publishAudit({ action: "signIn", userId: user.id, ip });
-
-    // 4. 读取完整用户信息并返回
-    const fullUser = await this._readPublicUser(user.id);
-
-    return {
-      userId: user.id,
-      user: fullUser,
-    };
-  }
-
-  // ----------------------------------------------------------
-  // 统一通道认证
-  // ----------------------------------------------------------
-
-  /**
-   * 统一通道认证入口。
-   * 自动判断注册/登录：渠道不存在则新建用户 + 绑定；已存在则直接登录。
+   * 意图语义（intent，默认 "upsert"）：
+   * - "signUp"：注册——渠道已存在抛 UserExistsError（注册冲突即错误，
+   *   不静默降级为登录）；
+   * - "signIn"：登录——渠道不存在抛 InvalidPasswordError（统一消息防枚举），
+   *   仅接受密码凭证；反查前即限流；
+   * - "upsert"：不存在则新建用户 + 绑定；已存在则直接登录（OAuth 回调 /
+   *   管理侧建号等场景）。
    *
    * 非密码凭证契约：调用方必须已完成凭证验证并显式声明
    * credential.verified = true，否则抛 CredentialInvalidError。
@@ -623,10 +451,29 @@ export class OmniAuth {
     input: ChannelAuthInput,
     requestContext?: RequestContext
   ): Promise<ChannelAuthResult> {
-    // 0. 非密码凭证契约校验（库不代为验证 smsCode / oauthCode 等）
+    const intent = input.intent ?? "upsert";
+    const ip = this._getClientIp(requestContext);
+
+    // 0. 契约校验：非密码凭证必须由调用方预先验证（库不代为验证 smsCode / oauthCode 等）
     if (input.credential.type !== "password" && input.credential.verified !== true) {
       throw new CredentialInvalidError(
         "非密码凭证必须由调用方预先验证：credential.verified 必须为 true"
+      );
+    }
+    // signIn 意图仅接受密码凭证：否则「登录不存在的账号」会凭 verified 标记
+    // 走 upsert 自动建号，绕过密码校验凭空建号
+    if (intent === "signIn" && input.credential.type !== "password") {
+      throw new CredentialInvalidError("intent: signIn 仅接受密码凭证");
+    }
+
+    // signIn 意图在反查前限流（键 ip:provider:providerOpenid），
+    // 已存在 / 不存在渠道的枚举试探付出同等代价
+    if (intent === "signIn") {
+      await checkRateLimit(
+        this._rateLimiter,
+        `signIn:${ip}:${input.provider}:${input.providerOpenid}`,
+        this._signInLimit.maxAttempts,
+        this._signInLimit.windowMs
       );
     }
 
@@ -637,20 +484,27 @@ export class OmniAuth {
     );
 
     if (existingChannel) {
+      // 注册冲突即错误：signUp 意图不静默降级为登录（防注册请求被兑现为对已有账号的登录）
+      if (intent === "signUp") {
+        throw new UserExistsError("该渠道已被注册");
+      }
+
       // 已有绑定 → 登录（凭证校验）
       let userId: string;
       let user: PublicUser;
 
       if (input.credential.type === "password") {
         // 密码凭证：渠道反查用户 → 验证共享密码（限流键 ip:provider:providerOpenid）
-        const ip = this._getClientIp(requestContext);
         const limitKey = `signIn:${ip}:${input.provider}:${input.providerOpenid}`;
-        await checkRateLimit(
-          this._rateLimiter,
-          limitKey,
-          this._signInLimit.maxAttempts,
-          this._signInLimit.windowMs
-        );
+        // signIn 意图已在反查前限流；upsert 仅在登录分支限流（现状行为）
+        if (intent !== "signIn") {
+          await checkRateLimit(
+            this._rateLimiter,
+            limitKey,
+            this._signInLimit.maxAttempts,
+            this._signInLimit.windowMs
+          );
+        }
 
         const record = await this.db.user.findOne({
           where: [{ field: "id", value: existingChannel.userId }],
@@ -703,9 +557,17 @@ export class OmniAuth {
       };
     }
 
-    // 2. 不存在 → 注册新用户（channelData 4.1.0 起随注册同事务原子写入）
-    const ip = this._getClientIp(requestContext);
+    // 2. 不存在：signIn 意图 → 统一失败（防枚举，绝不建号）
+    if (intent === "signIn") {
+      await this._publishAudit({
+        action: "signInFailed",
+        ip,
+        metadata: { provider: input.provider, providerOpenid: input.providerOpenid },
+      });
+      throw new InvalidPasswordError("凭证或密码错误");
+    }
 
+    // 3. 不存在 → 注册新用户（channelData 4.1.0 起随注册同事务原子写入）
     // 注册限流：键为客户端 IP（防按渠道锁死注册的 DoS）
     await checkRateLimit(
       this._rateLimiter,
@@ -744,17 +606,20 @@ export class OmniAuth {
         )
       );
     } catch (err) {
-      // 并发注册时预检查可能漏判，由唯一约束兜底
+      // 并发注册时预检查可能漏判，由唯一约束兜底并按意图转译：
+      // signUp 意图下注册冲突即错误（UserExistsError），upsert 保持渠道冲突语义
       if (isUniqueViolation(err)) {
-        throw new SocialAccountConflictError(input.provider, input.providerOpenid);
+        throw intent === "signUp"
+          ? new UserExistsError("该渠道已被注册")
+          : new SocialAccountConflictError(input.provider, input.providerOpenid);
       }
       throw err;
     }
 
-    // 3. 事务提交后触发 user.create.after 钩子
+    // 4. 事务提交后触发 user.create.after 钩子
     await this._fireUserCreatedHooks({ id: userId, name });
 
-    // 4. 回读渠道记录（已在事务内与 user 原子提交）
+    // 5. 回读渠道记录（已在事务内与 user 原子提交）
     const updatedRecord = await this.db.socialAccount.findOne({
       where: [
         { field: "provider", value: input.provider },
