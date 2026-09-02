@@ -1,163 +1,109 @@
-# omni-auth
+<div align="center">
 
-OmniAuth — 全渠道认证 SDK，框架无关，一等 Next.js 集成。
+# omni-auth 应签尽签·全渠道认证SDK
 
-## 职责边界（认证域黑盒）
+**把整个认证域封装成黑盒，装进你的应用就能用。**
 
-**本 SDK 持有整个认证域**：凭证校验、用户/渠道记录持久化、会话管理、
-OAuth 2.0 server、SCIM 管理面。认证域表（`user`/`socialAccount`/`session`/
-`oauthToken`/`oauthClient`）全部为包内私有：**宿主零 SQL、零表名、
-零事务编排**——除运维在数据库 GUI 中可见外，宿主无需感知这些表的存在。
+邮箱、手机、微信、GitHub 一律平权 —— 零 SQL、零表名、零事务编排。
 
-## 快速开始
+[![license](https://img.shields.io/badge/license-MIT-blue)](#license)
+[![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)]()
+[![next](https://img.shields.io/badge/peer-next%20%3E%3D16%20(optional)-000000)]()
+[![module](https://img.shields.io/badge/module-ESM%20%2B%20CJS-orange)]()
+
+</div>
+
+---
+
+## 为什么选 omni-auth
+
+自建一套生产级认证，你会反复踩同一批坑：每个渠道的凭证形态都不一样、特判代码越堆越乱；会话、OAuth 2.0 Server、SCIM 每一块都是又深又安全敏感的轮子；认证表散落在宿主库里，业务逻辑和认证逻辑越缠越死。
+
+omni-auth 的答案是：**认证域黑盒 + 全渠道平权 + 语义 API + 单一事实源**。你只调 API，剩下的全部住在包内。
+
+-  **自托管数据库** —— 只需提供一个 PostgreSQL 标准数据库操作对象，即可全自动完成数据库初始化
+-  **认证域黑盒** —— 全部认证逻辑包内私有，宿主不碰一行 SQL、不 JOIN 一张认证表、不编排一个事务
+-  **全渠道平权** —— 一个入口 `authenticateChannel` + 一个 `intent`，渠道特判从此消亡
+-  **安全内建** —— 限流、防枚举统一错误消息、OAuth `state` + PKCE 强制校验、验证码防爆破，默认即开
+-  **一等 Next.js 集成** —— `createQuickAuth` 一站式封装：连接池注入、自动建表、会话 cookie、构建期自动跳过数据库
+
+## 🚀 快速开始
+
+```bash
+pnpm add omni-auth pg
+```
 
 ```ts
 import { createQuickAuth } from "omni-auth/nextjs";
-import type { Pool } from "pg";
+import { Pool } from "pg";
 
-// 连接池由宿主注入（包不自行建池/关池）；autoSync 自动执行幂等建表/迁移
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
 export const auth = createQuickAuth({
   database: { pool },
   baseUrl: process.env.BETTER_AUTH_URL!,
-  autoSync: true,
+  autoSync: true, // 幂等建表 / 迁移，生产构建期自动跳过
 });
+```
 
-// 注册 / 登录（凭证校验，6.0.0 起唯一认证入口：authenticateChannel + intent）
+注册、登录、会话，各就各位：
+
+```ts
+// 注册 —— 邮箱和 GitHub 走的是同一个入口
 await auth.authenticateChannel({
   provider: "email", providerOpenid: email, intent: "signUp",
   credential: { type: "password", value: password },
   profile: { name },
 });
-await auth.authenticateChannel({
+
+// 登录
+const { userId } = await auth.authenticateChannel({
   provider: "email", providerOpenid: email, intent: "signIn",
   credential: { type: "password", value: password },
 });
 
-// 认证域语义 API
-await auth.sessions.createSession(userId);        // 会话
-await auth.oauthServer.createOAuthClient({...});  // OAuth 客户端
-await auth.users.updateUser(userId, { active: false }); // 用户管理
-await auth.scim.listUsers({...});                 // SCIM
+// 会话
+const { token } = await auth.sessions.createSession(userId);
 ```
 
-建表（等价于 `autoSync`，可单独执行）：
-
-```sh
-npx omni-auth db:push
-```
-
-## 自动建表 / 迁移（包内单一实现）
-
-表结构由包内 `schema.ts` 单一管理，`schema-sync.ts` 负责同步：
-
-- `createQuickAuth({ autoSync: true })` 初始化时自动执行（幂等，可重复运行）
-- `npx omni-auth db:push` CLI 复用同一实现
-- 安全策略：**不删表、不删列、不修改已有列类型**；仅
-  CREATE TABLE IF NOT EXISTS / 缺失列 ADD COLUMN / 旧版小写折叠列名 RENAME 保真
-- 同步结果：`{ synced, missingTables, addedColumns }`
-
-## 速率限制与生产建议
-
-默认限流器为**进程内存实现**，仅适用于单进程/开发环境。
-多实例 / serverless 部署请注入共享存储实现（如 Redis）：
+微信也一样，没有任何特殊分支：
 
 ```ts
-import { createQuickAuth } from "omni-auth/nextjs";
-import type { RateLimiter } from "omni-auth";
-
-const redisLimiter: RateLimiter = {
-  async check(key, maxAttempts, windowMs) {
-    // 基于 Redis INCR + EXPIRE 实现
-    // 返回 { allowed, remaining, resetAt }
-  },
-  async reset(key) { /* DEL key */ },
-};
-
-export const auth = createQuickAuth({
-  database: { url: process.env.DATABASE_URL! },
-  baseUrl: process.env.BETTER_AUTH_URL!,
-  rateLimit: { limiter: redisLimiter },
+await auth.authenticateChannel({
+  provider: "wechat",
+  providerOpenid: openid,
+  credential: { type: "oauthCode", value: code, verified: true },
+  profile: { name: nickname },
 });
 ```
 
-限流键策略（2.1.0 起）：
-
-| 接口 | 键 | 默认策略 |
-|---|---|---|
-| signUp | 客户端 IP | 3 次 / 1 小时 |
-| signIn | `ip:provider:openid` | 5 次 / 15 分钟（成功后重置计数） |
-| passwordReset | `ip:provider:openid` | 3 次 / 10 分钟 |
-| verifyChannelCode | `provider:openid` | 默认关闭，opt-in |
-
-signUp 按 IP 而非邮箱限流，防止攻击者消耗受害者邮箱配额、
-锁死其注册的 DoS。
-
-安全加固（4.1.0 起）：
+想要自己的 OAuth 2.0 Server 或 SCIM 目录？命名空间里现成的：
 
 ```ts
-export const auth = createQuickAuth({
-  database: { url: process.env.DATABASE_URL! },
-  baseUrl: process.env.BETTER_AUTH_URL!,
-  rateLimit: {
-    // 可信代理部署：从 x-forwarded-for 右侧数 1 跳，防头部伪造绕过限流
-    getClientIp: (ctx) => getClientIp(ctx, { trustedProxyDepth: 1 }),
-    // 防短验证码爆破（建议开启）
-    verifyCode: { maxAttempts: 5, windowMs: 10 * 60 * 1000 },
-  },
-  // 收紧密码策略（默认最短 8 位）
-  passwordPolicy: { minLength: 8 },
-});
+await auth.oauthServer.createOAuthClient({ clientName: "my-app" });
+await auth.scim.list({ pagination: { startIndex: 1, count: 20 }, filter: null });
 ```
 
-## 渠道模型（5.0.0）
+> 框架无关的底座入口是 `createAuth({ database, baseUrl })`；`createQuickAuth` 是它叠加 Next.js 一站式能力的封装。
 
-认证域共五张表（schema.ts 单一事实源）：
+## 📦 盒子里有什么
 
-- `user`：聚合身份 + 共享密码（`password` 可空，OAuth-only 用户无密码）
-  + 元数据列 `active`（0/1，历史库可能为 boolean，读取时归一化）
-- `socialAccount`：渠道身份（`provider + providerOpenid` 唯一），
-  持有该渠道的 token / 资料 / 能力标记（valid / allowPasswordUpdate /
-  allowVerification）
-- `session`：宿主会话（`id`/`userId`/`token`/`expiresAt`/`createdAt`）
-- `oauthToken`：授权码 + refresh token 生命周期（`(token, type)` 复合唯一）
-- `oauthClient`：OAuth 客户端凭证（`client_secret` 由 Token Authority 证书承载）
+| 能力 | 说明 |
+| --- | --- |
+| 凭证校验 | 密码 / 短信验证码 / OAuth code，全渠道统一入口，事务原子写入 |
+| 会话管理 | 创建 / 校验 / 吊销，账号禁用旧会话**立即失效** |
+| 用户管理 | 增删改查、级联删除、改密即吊销全部会话 |
+| OAuth 2.0 Server | 客户端、授权码、PKCE、refresh token、scope 协商 |
+| 外部 OAuth 登录 | Google / GitHub / 微信 provider 工厂，`state` 库内强制比对 |
+| SCIM 2.0 | 用户目录管理面：list / get / create / update / patch / remove |
+| 验证码委托 | 库生成密码学安全种子码，投递 / 校验委托你的网关 |
+| 限流与审计 | 可注入 Redis 限流器，审计事件钩子开箱即用 |
 
-邮箱是普通渠道：`(provider="email", providerOpenid=邮箱地址)`，与微信、
-GitHub 等完全同构。`signUp` / `signIn` 是它的便捷方法；其他渠道一律走
-`authenticateChannel`。任何渠道密码登录都验证同一个 `user.password`
-（共享密码）。从 4.x 升级需运行迁移脚本（见 CHANGELOG 5.0.0）。
+## 📚 深入了解
 
-## 认证域语义 API（宿主接口面）
+- [CHANGELOG](./CHANGELOG.md) —— 版本迭代与破坏性变更记录
+- [仓库主页](https://github.com/suzvka/omni-auth) —— 演示宿主（`apps/demo`）与项目边界约定（`AGENTS.md`）
 
-| 域 | 入口 | 职责 |
-|---|---|---|
-| 会话 | `auth.sessions.*` | 创建/校验/吊销会话、清理过期（内置账号禁用即时失效） |
-| OAuth server | `auth.oauthServer.*` | 客户端 CRUD/续期、授权码、refresh token、access token（委托 TokenAuthorityClient） |
-| 用户管理 | `auth.users.*` | 创建/更新/删除（包内单事务级联）、密码重置、列表搜索 |
-| SCIM | `auth.scim.*` | SCIM 2.0 用户/组管理面 |
-| 社交渠道 | `auth.socialAccounts`（内部） | 渠道绑定/解绑 |
-
-## 设计决策
-
-- **signUp 邮箱重复提示**：返回明文"该邮箱已被注册"。注册场景
-  需要即时反馈，此为有意取舍；signIn 则统一错误消息防枚举。
-- **OAuth state 校验**：3.0.0 起对象形式回调参数强制库内比对
-  `state` 与 `expectedState`（后者必须来自服务端保存的签名 cookie，
-  而非回调请求本身）。
-- **非密码凭证契约**：`authenticateChannel` 对 smsCode / oauthCode
-  等凭证不代为验证，调用方必须预先验证并声明
-  `credential.verified = true`。
-- **多表写入原子性**：注册流程（user + socialAccount）与删用户级联
-  （session / socialAccount / oauthToken / user）包入
-  `DatabaseAdapter.transaction`；自定义适配器未实现事务时
-  回退为顺序写入（仅警告）。
-- **令牌权威委托**：access token 签发/校验/续期/吊销委托宿主的
-  `TokenAuthorityClient`（如集群证书服务 yunzone_auth），包内不实现
-  令牌加密算法。
-- **构建期安全**：`createQuickAuth` 的 autoSync 在 Next.js 生产构建
-  阶段（NEXT_PHASE=phase-production-build）自动跳过，避免构建期
-  触碰数据库。
-
-## 许可
+## License
 
 MIT

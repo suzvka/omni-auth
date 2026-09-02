@@ -1,4 +1,7 @@
 # Changelog
+## 6.0.1
+> **文档版本**：无代码变更。README 重写为产品宣传页并作为 npm 项目介绍发布。
+> 详细使用文档见仓库根 README 的「深入了解」入口。
 ## 6.0.0
 > **authenticateChannel 意图化：消灭邮箱特例**。认证入口收敛为唯一的
 > `authenticateChannel`，注册/登录语义由 `intent` 表达；`signUp` / `signIn`

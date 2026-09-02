@@ -101,9 +101,7 @@ await auth.scim.list({ pagination: { startIndex: 1, count: 20 }, filter: null })
 
 ## 📚 深入了解
 
-完整文档随包发布：[`packages/omni-auth/README.md`](./packages/omni-auth/README.md)（数据流、错误码、API 参考、限流策略、令牌权威委托、Next.js 接入细节）。
-
-- [CHANGELOG](./packages/omni-auth/CHANGELOG.md) —— 版本迭代与破坏性变更记录
+- [CHANGELOG](./packages/omni-auth/CHANGELOG.md) —— 版本迭代与破坏性变更记录（含迁移指南）
 - [apps/demo](./apps/demo) —— Next.js 演示宿主，可直接跑起来体验
 - [AGENTS.md](./AGENTS.md) —— 项目边界约定
 
