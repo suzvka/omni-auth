@@ -101,17 +101,15 @@ await auth.scim.list({ pagination: { startIndex: 1, count: 20 }, filter: null })
 
 ## 📚 深入了解
 
-- [CHANGELOG](./packages/omni-auth/CHANGELOG.md) —— 版本迭代与破坏性变更记录（含迁移指南）
-- [apps/demo](./apps/demo) —— Next.js 演示宿主，可直接跑起来体验
+- [CHANGELOG](./CHANGELOG.md) —— 版本迭代与破坏性变更记录（含迁移指南）
 - [AGENTS.md](./AGENTS.md) —— 项目边界约定
 
 ## 🛠️ 开发
 
 ```bash
-pnpm install     # 安装 workspace 依赖
+pnpm install     # 安装依赖
 pnpm build       # 构建工具库（ESM + CJS + 类型 + sourcemap）
 pnpm test        # 运行测试（vitest）
-pnpm dev         # 启动演示宿主（apps/demo）
 ```
 
 发布由 GitHub Actions 驱动，见 [`.github/workflows/publish.yml`](./.github/workflows/publish.yml)。
