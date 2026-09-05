@@ -1,6 +1,6 @@
 <div align="center">
 
-# omni-auth 应签尽签·全渠道认证SDK
+# omni-auth 应签尽签·全渠道认证工具库
 
 **把整个认证域封装成黑盒，装进你的应用就能用。**
 
@@ -42,7 +42,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 export const auth = createQuickAuth({
   database: { pool },
   baseUrl: process.env.BETTER_AUTH_URL!,
-  autoSync: true, // 幂等建表 / 迁移，生产构建期自动跳过
+  autoSync: true, // 显式开启幂等建表 / 迁移（默认关闭，建表属部署期操作）
 });
 ```
 

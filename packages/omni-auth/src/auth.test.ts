@@ -762,18 +762,34 @@ function createTxFailureDb(failFrom = 2) {
     return { adapter, dump: (m: string) => table(m), state };
 }
 
-describe("事务原子性（3.0.0）", () => {
-    it("适配器未实现 transaction 时回退顺序写入（功能可用）", async () => {
+/** 去掉 transaction 能力的适配器（能力协商测试专用） */
+function stripTransaction(memDb: DatabaseAdapter & { dump: unknown }): DatabaseAdapter {
+    const { transaction: _unused, ...rest } = memDb;
+    return rest as DatabaseAdapter;
+}
+
+describe("事务原子性（3.0.0 回退；7.0.0 能力协商）", () => {
+    it("适配器未实现 transaction：createAuth 构造期 fail-fast（默认）", () => {
         const memDb = createInMemoryDb();
-        const { transaction: _unused, ...rest } = memDb as DatabaseAdapter & {
-            transaction: unknown;
-            dump: unknown;
-        };
+
+        expect(() =>
+            createAuth({
+                database: stripTransaction(memDb),
+                baseUrl: "http://localhost:3000",
+            }),
+        ).toThrowError(
+            expect.objectContaining({ code: "ADAPTER_TRANSACTION_UNSUPPORTED" }),
+        );
+    });
+
+    it("显式 allowNonAtomicWrites 后放行：回退顺序写入（功能可用）", async () => {
+        const memDb = createInMemoryDb();
         const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
         const auth = createAuth({
-            database: rest as DatabaseAdapter,
+            database: stripTransaction(memDb),
             baseUrl: "http://localhost:3000",
+            allowNonAtomicWrites: true,
         });
 
         const result = await auth.authenticateChannel({

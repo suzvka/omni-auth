@@ -1,7 +1,7 @@
 {
   "name": "omni-auth",
-  "version": "6.0.1",
-  "description": "OmniAuth — omnichannel authentication SDK with first-class Next.js integration",
+  "version": "7.0.0",
+  "description": "OmniAuth — omnichannel authentication utility library with first-class Next.js integration",
   "author": "Omni Auth Contributors",
   "license": "MIT",
   "repository": {
@@ -33,11 +33,6 @@
       "import": "./dist/adapters/pg.js",
       "require": "./dist/adapters/pg.cjs"
     },
-    "./client": {
-      "types": "./dist/client.d.ts",
-      "import": "./dist/client.js",
-      "require": "./dist/client.cjs"
-    },
     "./nextjs": {
       "types": "./dist/nextjs/index.d.ts",
       "import": "./dist/nextjs/index.js",
@@ -65,7 +60,6 @@
     "CHANGELOG.md"
   ],
   "bin": {
-    "omni-auth": "bin/db-push.mjs",
     "omni-auth-codegen": "bin/codegen.mjs"
   },
   "scripts": {
@@ -87,12 +81,12 @@
   },
   "dependencies": {
     "@better-auth/core": "~1.6.26",
-    "@better-auth/utils": "~0.4.2",
-    "pg": "^8"
+    "@better-auth/utils": "~0.4.2"
   },
   "devDependencies": {
     "@types/pg": "^8.23.1",
     "next": "16.2.6",
+    "pg": "^8",
     "pg-mem": "^3.0.14",
     "tsup": "^8",
     "typescript": "^5",

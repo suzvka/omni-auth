@@ -2,7 +2,7 @@
   "name": "omni-auth-workspace",
   "version": "0.1.0",
   "private": true,
-  "description": "omni-auth SDK monorepo — 全渠道认证 SDK（packages/omni-auth）+ 演示宿主（apps/demo）",
+  "description": "omni-auth monorepo — 全渠道认证工具库（packages/omni-auth）+ 演示宿主（apps/demo）",
   "scripts": {
     "build": "pnpm --filter omni-auth build",
     "dev": "pnpm --filter omni-auth-demo dev",
@@ -11,7 +11,6 @@
     "lint": "pnpm --filter omni-auth-demo lint",
     "test": "pnpm --filter omni-auth test",
     "typecheck": "pnpm --filter omni-auth typecheck",
-    "publish": "pnpm --filter omni-auth publish --access public",
-    "migrate:v5": "node packages/omni-auth/bin/migrate-v5.mjs"
+    "publish": "pnpm --filter omni-auth publish --access public"
   }
 }

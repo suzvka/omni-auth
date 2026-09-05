@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-// SDK 初始化由 @/lib/auth.ts 在首次导入时自动完成
+// 认证库初始化由 @/lib/auth.ts 在首次导入时自动完成
 
 export const metadata: Metadata = {
   title: "Create Next App",

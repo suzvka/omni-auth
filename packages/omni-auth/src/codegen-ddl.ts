@@ -2,7 +2,7 @@
 // DDL 生成器
 //
 // 从 schema.ts 的表定义生成 PostgreSQL DDL（幂等：IF NOT EXISTS）
-// 由 bin/db-push.mjs 在运行时调用
+// 由 schema-sync.ts（autoSync）在运行时调用
 // ============================================================
 
 import type { Schema, TableDef, ColumnBuilder } from "./schema-builder";
@@ -120,7 +120,7 @@ function buildCreateTableSQL(table: TableDef): string {
  *
  * 运行时查询层（createDbFacade / adapter）直接以 model 名（schema 变量名）
  * 拼 SQL，因此 table() 的物理表名必须与之相同；若二者分道扬镳，
- * autoSync / db:push 建出的表与运行时查询的表不是同一张（5.1.2 回归教训），
+ * autoSync 建出的表与运行时查询的表不是同一张（5.1.2 回归教训），
  * 此处 fail-fast 防止再次发生。
  */
 export function assertConsistentTableNames(schema: Schema): void {

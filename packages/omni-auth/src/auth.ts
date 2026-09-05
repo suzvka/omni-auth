@@ -1,5 +1,5 @@
 // ============================================================
-// OmniAuth — SDK 主类
+// OmniAuth — 工具库主类
 //
 // 提供框架无关的认证 API。
 //
@@ -7,7 +7,7 @@
 // - 多表写入（注册/社交注册/OAuth 新用户）包入事务（适配器支持时）；
 // - OAuth provider / 验证码 sender/verifier / token refresher /
 //   审计处理器均为实例级注册表（OmniRegistry），多实例互不干扰；
-// - SDK 不再写入 app 业务表（businessAccount），由 hooks 自行处理；
+// - 库不再写入 app 业务表（businessAccount），由 hooks 自行处理；
 // - 限流键引入客户端 IP，支持注入外部限流器（如 Redis）。
 // ============================================================
 
@@ -55,7 +55,7 @@ import {
 import { createRegistry, type OmniRegistry } from "./registry";
 
 // ----------------------------------------------------------
-// SDK 配置
+// 库配置
 // ----------------------------------------------------------
 
 /** 限流策略配置 */
@@ -113,6 +113,15 @@ export interface OmniAuthConfig {
   rateLimit?: OmniAuthRateLimitConfig;
   /** 密码策略 */
   passwordPolicy?: OmniAuthPasswordPolicy;
+  /**
+   * 显式接受非原子多表写入（默认关闭）。
+   *
+   * 适配器未实现 transaction 时，createAuth 构造期默认抛
+   * ADAPTER_TRANSACTION_UNSUPPORTED 阻断启动（防注册等
+   * user + socialAccount 多表写入产生半注册脏数据）。
+   * 置为 true 表示宿主已知晓并接受顺序写入降级（仅首次警告）。
+   */
+  allowNonAtomicWrites?: boolean;
 }
 
 // ----------------------------------------------------------
@@ -219,6 +228,29 @@ function missingTokenAuthority(): TokenAuthorityClient {
 // OmniAuth 主类
 // ----------------------------------------------------------
 
+/**
+ * 事务能力协商：适配器未实现 transaction 时阻断启动（7.0.0）。
+ *
+ * 多表写入（注册 = user + socialAccount 等）依赖事务原子性；
+ * 静默回退顺序写入会在第二步失败时留下半注册脏数据，且警告在
+ * 生产环境极易被吞掉，故默认 fail-fast。宿主经
+ * allowNonAtomicWrites=true 显式接受降级时放行（回退路径见
+ * {@link withTransaction}）。
+ */
+function assertTransactionCapability(
+  database: DatabaseAdapter,
+  allowNonAtomicWrites: boolean
+): void {
+  if (typeof database.transaction === "function") return;
+  if (allowNonAtomicWrites) return;
+  throw new OmniAuthError(
+    "ADAPTER_TRANSACTION_UNSUPPORTED",
+    "数据库适配器未实现 transaction，多表写入（注册 / 社交绑定）不具原子性，" +
+      "已阻断启动以防半注册脏数据。请为适配器实现 DatabaseAdapter.transaction；" +
+      "确需接受顺序写入降级时，显式配置 createAuth({ allowNonAtomicWrites: true })。"
+  );
+}
+
 export class OmniAuth {
   private config: OmniAuthConfig;
   /** 实例级注册表（OAuth provider / sender / verifier / refresher / audit） */
@@ -253,6 +285,10 @@ export class OmniAuth {
 
   constructor(config: OmniAuthConfig) {
     this.config = config;
+
+    // 事务能力协商（7.0.0）：多表写入依赖事务，未实现时启动即阻断，
+    // 防半注册脏数据；宿主可经 allowNonAtomicWrites 显式接受降级
+    assertTransactionCapability(config.database, config.allowNonAtomicWrites ?? false);
 
     // 实例级注册表（多实例互不干扰）
     this._registry = createRegistry();
@@ -339,7 +375,7 @@ export class OmniAuth {
     await dispatchAuditEvent(this._registry.auditHandler, event);
   }
 
-  /** 在事务中执行多表写入（适配器不支持事务时回退顺序写入并警告） */
+  /** 在事务中执行多表写入（构造期已做能力协商；回退路径仅在显式接受降级后存在） */
   private async _withTransaction<T>(fn: (tx: DatabaseAdapter) => Promise<T>): Promise<T> {
     return withTransaction(this.config.database, fn);
   }

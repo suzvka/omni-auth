@@ -1,11 +1,11 @@
 // ============================================================
 // 错误类型
 //
-// 所有 SDK 错误继承自 OmniAuthError（带机器可读 code），
+// 所有库错误继承自 OmniAuthError（带机器可读 code），
 // 消费方可按 instanceof / code 做程序化处理。
 // ============================================================
 
-/** SDK 错误基类（带机器可读 code） */
+/** 库错误基类（带机器可读 code） */
 export class OmniAuthError extends Error {
   code: string;
 

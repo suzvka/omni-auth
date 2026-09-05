@@ -6,7 +6,7 @@
 //   2. DDL 同步：CREATE TABLE IF NOT EXISTS + 索引（幂等）
 //   3. 列修正：缺失列 ADD COLUMN；旧版全小写列名 RENAME 保真
 //
-// 安全策略（与 db:push CLI 一致）：
+// 安全策略：
 //   - 不删除表或列
 //   - 不修改已有列的类型
 //   - 不执行数据迁移

@@ -67,7 +67,7 @@ export interface PgAdapterInstance extends DatabaseAdapter {
  *
  * PostgreSQL 会把未加引号的标识符折叠为小写（providerId → providerid），
  * 而 better-auth / omni-auth 业务层期望驼峰字段名（providerId）。
- * 表列名由 db:push / schema 同步以引号形式创建（驼峰保真），
+ * 表列名由 schema 同步（schema-sync）以引号形式创建（驼峰保真），
  * 因此读写的 SQL 必须同样加引号，否则写入折叠为小写、读取返回小写 key，
  * 导致字段名不匹配（登录时 "Credential account not found"）。
  */
@@ -393,8 +393,8 @@ export function PgAdapter(options: PgAdapterOptions): PgAdapterInstance {
      * 单连接事务：BEGIN → fn(tx) → COMMIT，抛错则 ROLLBACK。
      * tx 适配器与主适配器语义一致，但所有查询走事务绑定的连接。
      *
-     * 契约约束：SDK 事务与宿主事务（如 yunzone-service-kit withTransaction）
-     * 互相不可见——宿主应在自身事务外调用 SDK 写操作，否则 SDK 在池上另开
+     * 契约约束：库事务与宿主事务（如 yunzone-service-kit withTransaction）
+     * 互相不可见——宿主应在自身事务外调用库写操作，否则库在池上另开
      * 连接，其写入会静默逃逸宿主事务。
      */
     async transaction<T>(fn: (tx: DatabaseAdapter) => Promise<T>): Promise<T> {

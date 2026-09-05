@@ -1,4 +1,80 @@
 # Changelog
+## 7.0.0
+> **事务能力协商 + 适配器契约条款化 + CLI 移除与 `pg` 硬依赖剥离 +
+> `autoSync` 默认关闭 + 移除浏览器客户端（`omni-auth/client`）+ 去 SDK 品牌化**。
+> DatabaseAdapter 从「预留钩子」向「完整契约」收敛的第一步（RFC「数据库层
+> 抽象化」的第一步落地；多方言支持不在本版范围）。破坏性变更。
+>
+> ### 行为变更
+>
+> - **`createAuth` 构造期能力协商（fail-fast）**：适配器未实现
+>   `transaction` 时，默认抛 `code=ADAPTER_TRANSACTION_UNSUPPORTED`
+>   阻断启动。此前多表写入（注册 = user + socialAccount 等）会静默回退为
+>   顺序写入且仅 `console.warn` 一次——第二步失败即产生半注册脏数据，
+>   警告在生产环境极易被吞掉。内置 `PgAdapter` 不受影响。
+> - **`autoSync` 默认关闭**：`createQuickAuth` 的自动建表默认值由开转关
+>   （`AUTO_SYNC_DB` 同步改为显式 `=true` 才开启）。建表属部署期操作
+>   （需 DDL 权限、影响全实例、应可审计），不应默认由运行期初始化承担；
+>   默认行为退化为仅检查缺表并警告。显式 `autoSync: true` 保留原行为，
+>   推荐宿主在部署流程中显式调用 `syncSchema(pool)`。
+>
+> ### 移除（破坏性）
+>
+> - **`npx omni-auth db:push` CLI（bin/db-push.mjs）**：schema 同步唯一入口
+>   收敛为运行时 autoSync（`createQuickAuth({ autoSync: true })` /
+>   `AUTO_SYNC_DB=true`，复用 `syncSchema` 同一实现，宿主注入池执行）。
+>   依赖独立 CLI 同步表结构的部署流程需改为启用 autoSync，或在宿主侧
+>   直接调用 `syncSchema(pool)`。编程 API（`PgAdapter` / `PgPoolLike` /
+>   `createQuickAuth`）契约未变，运行时消费者零改动。
+> - **`bin/migrate-v5.mjs`（v5 一次性迁移脚本）**：v5 → 渠道化两表模型的
+>   历史迁移已完成使命，随根 `migrate:v5` script 一并移除。
+> - **`dependencies."pg"`**：运行时不再依赖 `pg`——`PgAdapter` 仅以
+>   `PgPoolLike` / `PgClientLike` 结构化形状消费宿主池（type-only import
+>   编译期擦除）。`pg` 由宿主自行声明（宿主连 PostgreSQL 本来就需要它）；
+>   包内仅保留 devDependency（供集成测试），不透传给消费者。
+>   `@types/pg` 保留为 devDependency（供 `.d.ts` 类型引用）。
+> - **文案修正**：`createQuickAuth` 缺表警告不再指向已移除的 `db:push`，
+>   改为提示启用 autoSync。
+> - **`omni-auth/client` 子路径（`createOmniClient` / `OmniClient` / `SignInParams` /
+>   `SignUpParams`）**：该浏览器端 fetch 封装把宿主路由约定（`/api/auth/sign-in`、
+>   `/api/auth/sign-up`、`/api/auth/forget-password`、`/api/auth/reset-password`）写死进包，
+>   而这些路由由宿主自行定义、包并不提供。仓内零消费方（连 `apps/demo` 都以裸 `fetch`
+>   调用），无单测，且不在主入口 `omni-auth` barrel 中再导出。移除后 omni-auth 收敛为
+>   纯服务端认证工具库；宿主前端改为直接 `fetch` 自有 `/api/auth/*` 路由。
+>
+> ### 新增（公开 API）
+>
+> - **`OmniAuthConfig.allowNonAtomicWrites`**（`createQuickAuth` 同名透传）：
+>   显式接受非原子多表降级的逃生门。置为 `true` 后恢复旧行为
+>   （顺序写入 + 首次警告），用于暂无事务能力的自定义适配器平滑迁移。
+>
+> ### 契约文档
+>
+> - **`DatabaseAdapter` 接口条款化**：库级错误（唯一约束冲突等）必须在
+>   适配器层转译为 `code=UNIQUE_VIOLATION` 等抽象信号，不得泄漏数据库
+>   原生错误码（如 pg 23505）；业务层统一经 `isUniqueViolation` 守卫判断，
+>   跨包/多副本场景禁止依赖错误类身份（instanceof）。
+> - **`upsert` 注释纠正**：旧注释引用的「token.ts 检测并回退」已不存在，
+>   改为如实描述（当前 SDK 内部无消费方，为单 token 语义预留）。
+>
+> ### 迁移
+>
+> ```ts
+> // 6.x：自定义适配器未实现 transaction（静默降级，运行时仅警告一次）
+> const auth = createAuth({ database: myAdapter, baseUrl });
+>
+> // 7.0.0 方案一（推荐）：为适配器实现事务
+> const myAdapter: DatabaseAdapter = {
+>   // ...CRUD
+>   async transaction(fn) { /* BEGIN → fn(tx) → COMMIT/ROLLBACK */ },
+> };
+>
+> // 7.0.0 方案二（显式接受降级）：
+> const auth = createAuth({
+>   database: myAdapter, baseUrl,
+>   allowNonAtomicWrites: true, // 已知晓多表写入不具原子性
+> });
+> ```
 ## 6.0.1
 > **文档版本**：无代码变更。README 重写为产品宣传页并作为 npm 项目介绍发布。
 > 详细使用文档见仓库根 README 的「深入了解」入口。

@@ -1,4 +1,4 @@
-// omni-auth — 框架无关认证 SDK
+// omni-auth — 框架无关认证工具库
 // ============================================================
 
 export { createAuth, OmniAuth } from "./auth";

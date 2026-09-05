@@ -65,7 +65,7 @@ function isPoolDbConfig(cfg: DatabaseAdapter | PoolDbConfig): cfg is PoolDbConfi
 /**
  * 注入式数据库配置：宿主提供现成连接池。
  *
- * 连接池（含 SSL/max 等配置）由宿主创建与管理，SDK 只消费引用——
+ * 连接池（含 SSL/max 等配置）由宿主创建与管理，库只消费引用——
  * 认证域与宿主业务域共享同一连接池，避免双池。
  * 类型为最小结构形状（PgPoolLike），与宿主所用 pg 类型版本解耦。
  */
@@ -82,7 +82,7 @@ export interface QuickAuthConfig {
    * ```ts
    * database: { pool: getPool() }
    * ```
-   * SDK 基于注入的 pg 连接池执行参数化 SQL，零 ORM 依赖，
+   * 库基于注入的 pg 连接池执行参数化 SQL，零 ORM 依赖，
    * 连接池生命周期归宿主（单池共享）。
    *
    * **自定义适配器：**
@@ -90,11 +90,13 @@ export interface QuickAuthConfig {
    */
   database: DatabaseAdapter | PoolDbConfig;
   /**
-   * 自动建表/迁移（默认 true）。
+   * 自动建表/迁移（默认 false，7.0.0 起）。
    *
-   * pool 注入模式下，初始化时自动执行 schema 同步（幂等，
-   * 建表/补列/驼峰列名修复）；false 时仅检查缺表并警告。
-   * 环境变量 AUTO_SYNC_DB=false 可整体关闭（显式设置优先）。
+   * 建表属部署期操作（需 DDL 权限、影响全实例、应可审计），默认不归
+   * 运行期初始化承担。显式置 true 时初始化执行 schema 同步（幂等，
+   * 建表/补列/驼峰列名修复）；默认仅检查缺表并警告。推荐宿主在部署
+   * 流程中显式调用 `syncSchema(pool)`。环境变量 AUTO_SYNC_DB=true 可
+   * 整体开启（显式 autoSync 设置优先）。
    */
   autoSync?: boolean;
   /**
@@ -123,13 +125,21 @@ export interface QuickAuthConfig {
   rateLimit?: import("../auth").OmniAuthRateLimitConfig;
   /** 密码策略（4.1.0；不配置时保持默认最短 6 位） */
   passwordPolicy?: import("../auth").OmniAuthPasswordPolicy;
+  /**
+   * 显式接受非原子多表写入（默认关闭，7.0.0）。
+   *
+   * 仅在注入自定义适配器且其未实现 transaction 时需要：
+   * 默认会在构造期抛 ADAPTER_TRANSACTION_UNSUPPORTED 阻断启动。
+   * 注入式连接池配置（PgAdapter）自带事务能力，无需此项。
+   */
+  allowNonAtomicWrites?: boolean;
 }
 
 /**
- * 一站式初始化认证 SDK。
+ * 一站式初始化认证工具库。
  *
  * 自动处理：数据库适配器连接（基于宿主注入的连接池）。
- * 本 SDK 只负责凭证校验（用户是否存在 + 密码是否正确），
+ * 本库只负责凭证校验（用户是否存在 + 密码是否正确），
  * 不维护任何会话状态（会话由应用层自行管理）。
  *
  * @example
@@ -152,10 +162,11 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
     database = PgAdapter({ pool: config.database.pool });
 
     // === 自动建表/迁移（幂等，认证域表结构由包内 schema 单一管理） ===
-    // AUTO_SYNC_DB=false 整体关闭；显式 autoSync 优先于环境变量；
+    // 建表属部署期操作，默认关闭（7.0.0）：仅当显式 autoSync: true 或
+    // AUTO_SYNC_DB=true 时执行；显式 autoSync 优先于环境变量；
     // Next.js 构建期（page data 收集）跳过，避免构建环境无 DB 凭证时阻断
     const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
-    const envAutoSync = process.env.AUTO_SYNC_DB !== "false";
+    const envAutoSync = process.env.AUTO_SYNC_DB === "true";
     const autoSync = config.autoSync ?? envAutoSync;
     if (!isBuildPhase) {
       void syncSchema(config.database.pool, {
@@ -166,7 +177,7 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
           if (!result.synced && result.missingTables.length > 0) {
             console.warn(
               `[omni-auth] 缺少表: ${result.missingTables.join(", ")}。` +
-                `请运行 npx omni-auth db:push 或设置 AUTO_SYNC_DB=true。`
+                `请设置 AUTO_SYNC_DB=true（或 createQuickAuth({ autoSync: true }）触发幂等建表。`
             );
           }
         })
@@ -189,5 +200,6 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
     audit: config.audit,
     rateLimit: config.rateLimit,
     passwordPolicy: config.passwordPolicy,
+    allowNonAtomicWrites: config.allowNonAtomicWrites,
   });
 }

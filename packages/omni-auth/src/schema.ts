@@ -3,7 +3,7 @@
 //
 // 此处定义的表结构用于：
 // 1. TypeScript 行类型推导（InferSelect）
-// 2. SQL DDL 生成（codegen-ddl.ts → bin/db-push.mjs）
+// 2. SQL DDL 生成（codegen-ddl.ts → schema-sync.ts）
 // 3. Prisma schema 生成（codegen-prisma.ts → bin/codegen.mjs）
 //
 // 修改表结构时只需改此文件，其余产物由 codegen 自动同步。
@@ -69,7 +69,7 @@ export const socialAccount = table(
 // ----------------------------------------------------------
 // session 表（宿主会话，认证域私有）
 //
-// 列名沿用历史物理表（驼峰保真），由 db:push / schema-sync 同步。
+// 列名沿用历史物理表（驼峰保真），由 schema-sync 同步。
 // ----------------------------------------------------------
 
 export const session = table("session", {
@@ -83,7 +83,7 @@ export const session = table("session", {
 // ----------------------------------------------------------
 // oauthToken 表（授权码 + refresh token 生命周期）
 //
-// 表名与 model 名一致（驼峰），由 db:push / schema-sync 同步；
+// 表名与 model 名一致（驼峰），由 schema-sync 同步；
 // 无 id 列（历史 INSERT 不携带），(token, type) 复合唯一索引标识记录。
 // ----------------------------------------------------------
 
@@ -110,7 +110,7 @@ export const oauthToken = table(
 // oauthClient 表（OAuth 客户端凭证）
 //
 // client_secret 由 Token Authority Service 签发的证书承载；
-// 表名与 model 名一致（驼峰），由 db:push / schema-sync 同步。
+// 表名与 model 名一致（驼峰），由 schema-sync 同步。
 // ----------------------------------------------------------
 
 export const oauthClient = table("oauthClient", {

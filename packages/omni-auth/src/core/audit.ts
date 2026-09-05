@@ -70,7 +70,7 @@ export function getAuditHandler(): AuditHandler | null {
 /**
  * 发布审计事件（异步、不抛异常）。
  *
- * @deprecated 全局函数仅作过渡兼容；SDK 内部经实例注册表发布事件。
+ * @deprecated 全局函数仅作过渡兼容；库内部经实例注册表发布事件。
  */
 export async function publishAuditEvent(event: Omit<AuditEvent, "timestamp">): Promise<void> {
   const handler = getActiveRegistry()?.auditHandler;
