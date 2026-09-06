@@ -28,7 +28,7 @@ import { createPasswordReset } from "./core/password";
 import { hasRole, hasAnyRole, requireRole, requireAnyRole } from "./core/roles";
 import { dispatchAuditEvent, type AuditEvent, type AuditHandler } from "./core/audit";
 import { createChannelVerification } from "./core/verification-channel";
-import type { VerificationSender, VerificationVerifier } from "./core/verification-channel";
+import type { VerificationSender, VerificationVerifier, VerificationPolicy } from "./core/verification-channel";
 import { createDbFacade, type DbFacade } from "./models";
 import { createSessionService, type SessionService } from "./core/session";
 import { createUserAdmin, type UserAdminService } from "./core/user-admin";
@@ -92,6 +92,9 @@ export interface OmniAuthPasswordPolicy {
   minLength?: number;
 }
 
+/** 验证码渠道策略（7.1.0，opt-in；provider 级门禁，结构见 VerificationPolicy） */
+export type OmniAuthVerificationPolicy = VerificationPolicy;
+
 export interface OmniAuthConfig {
   /** 数据库适配器（必填） */
   database: DatabaseAdapter;
@@ -113,6 +116,14 @@ export interface OmniAuthConfig {
   rateLimit?: OmniAuthRateLimitConfig;
   /** 密码策略 */
   passwordPolicy?: OmniAuthPasswordPolicy;
+  /**
+   * 验证码渠道策略（7.1.0，opt-in；不配置时全部渠道允许，行为与旧版一致）。
+   *
+   * disabledProviders 命中的渠道：requestChannelCode / verifyChannelCode
+   * 拒绝生成与校验，连带密码重置 requestReset / reset 一并拦截，
+   * 抛 ChannelVerificationDisabledError（code=CHANNEL_VERIFICATION_DISABLED）。
+   */
+  verificationPolicy?: OmniAuthVerificationPolicy;
   /**
    * 显式接受非原子多表写入（默认关闭）。
    *
@@ -324,8 +335,11 @@ export class OmniAuth {
       publishAudit: (event) => this._publishAudit(event),
     });
 
-    // 渠道验证码（委托模式，实例注册表）
-    this._channelVerification = createChannelVerification(this._registry);
+    // 渠道验证码（委托模式，实例注册表；可选 provider 级门禁）
+    this._channelVerification = createChannelVerification(
+      this._registry,
+      config.verificationPolicy
+    );
 
     // 密码重置（依赖实例级渠道验证码服务）
     this._passwordReset = createPasswordReset({

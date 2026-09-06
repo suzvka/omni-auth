@@ -1,4 +1,26 @@
 # Changelog
+## 7.1.0
+> **渠道验证码 provider 级禁用门禁（opt-in）**。新增 `OmniAuthConfig.verificationPolicy`，
+> 声明某些渠道不可用于验证码；默认不配置时行为与 7.0.0 完全一致。非破坏性。
+>
+> ### 新增（公开 API）
+>
+> - **`OmniAuthConfig.verificationPolicy.disabledProviders`**（`createQuickAuth` 同名透传）：
+>   provider 名单（精确匹配，与注册表 key 语义一致）。命中的渠道在编排器层被拒绝——
+>   `requestChannelCode` 拒绝生成、`verifyChannelCode` 拒绝校验，连带密码重置
+>   `requestPasswordReset` / `resetPassword` 一并拦截。opt-in，缺省 / 空数组时全部放行。
+> - **`ChannelVerificationDisabledError`**（`code=CHANNEL_VERIFICATION_DISABLED`）：门禁命中时抛出，
+>   消费方可按 `code` 程序化处理（不依赖 instanceof）。
+> - **`OmniAuthVerificationPolicy`** 类型（`omni-auth` 主入口导出）。
+>
+> ### 设计说明
+>
+> - 门禁下沉到 `createChannelVerification` 编排器工厂（单一门禁点），自动覆盖认证门面与
+>   密码重置的全部发码 / 验码入口；底层原语 `requestCode` / `verifyCode` 保持无门禁、签名不变。
+> - 与「全渠道平权」自洽：门禁是 policy 驱动的通用编排能力（对任意 provider 一视同仁按名单拒绝），
+>   非渠道特化逻辑，不引入任何硬编码渠道分支。
+> - `socialAccount.allowVerification` 等记录级字段仍未接线（本次为 provider 级方案，不涉及记录级门禁）。
+
 ## 7.0.0
 > **事务能力协商 + 适配器契约条款化 + CLI 移除与 `pg` 硬依赖剥离 +
 > `autoSync` 默认关闭 + 移除浏览器客户端（`omni-auth/client`）+ 去 SDK 品牌化**。

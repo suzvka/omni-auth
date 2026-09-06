@@ -133,6 +133,8 @@ export interface QuickAuthConfig {
    * 注入式连接池配置（PgAdapter）自带事务能力，无需此项。
    */
   allowNonAtomicWrites?: boolean;
+  /** 验证码渠道策略（7.1.0，opt-in；provider 级门禁，禁用渠道不可生成/校验验证码） */
+  verificationPolicy?: import("../auth").OmniAuthVerificationPolicy;
 }
 
 /**
@@ -201,5 +203,6 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
     rateLimit: config.rateLimit,
     passwordPolicy: config.passwordPolicy,
     allowNonAtomicWrites: config.allowNonAtomicWrites,
+    verificationPolicy: config.verificationPolicy,
   });
 }

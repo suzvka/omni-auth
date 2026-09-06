@@ -84,6 +84,17 @@ export class OAuthStateMismatchError extends OmniAuthError {
   }
 }
 
+/** 渠道已被声明禁用验证码能力（7.1.0，provider 级 opt-in 门禁） */
+export class ChannelVerificationDisabledError extends OmniAuthError {
+  constructor(provider: string) {
+    super(
+      "CHANNEL_VERIFICATION_DISABLED",
+      `渠道 "${provider}" 已被配置禁用验证码能力（不可生成/校验验证码）`
+    );
+    this.name = "ChannelVerificationDisabledError";
+  }
+}
+
 /**
  * 唯一约束冲突守卫（数据库层信号，供内部转译业务错误）。
  *

@@ -11,6 +11,7 @@ import {
 import type { VerificationSender, VerificationVerifier } from "./verification-channel";
 import type { SocialAccountRef } from "../social/token";
 import { createRegistry, type OmniRegistry } from "../registry";
+import { ChannelVerificationDisabledError } from "../errors";
 
 // ============================================================
 // Mock 验证码投递器 / 验证器（委托模式：状态由实现方管理）
@@ -180,6 +181,65 @@ describe("createChannelVerification", () => {
         await expect(
             service.verifyCode("email", "user@example.com", "123456")
         ).rejects.toThrow('渠道 "email" 未注册验证码验证器');
+    });
+});
+
+// ---- createChannelVerification（provider 级门禁，7.1.0） ----
+
+describe("createChannelVerification provider 门禁", () => {
+    it("disabledProviders 命中：requestCode 抛 CHANNEL_VERIFICATION_DISABLED", async () => {
+        const service = createChannelVerification(registry, {
+            disabledProviders: ["email"],
+        });
+        await expect(
+            service.requestCode("email", "user@example.com")
+        ).rejects.toThrow(ChannelVerificationDisabledError);
+        await expect(
+            service.requestCode("email", "user@example.com")
+        ).rejects.toMatchObject({ code: "CHANNEL_VERIFICATION_DISABLED" });
+    });
+
+    it("disabledProviders 命中：verifyCode 抛 CHANNEL_VERIFICATION_DISABLED", async () => {
+        const service = createChannelVerification(registry, {
+            disabledProviders: ["email"],
+        });
+        await expect(
+            service.verifyCode("email", "user@example.com", "123456")
+        ).rejects.toThrow(ChannelVerificationDisabledError);
+    });
+
+    it("门禁前置：禁用渠道不触发 sender 投递", async () => {
+        const service = createChannelVerification(registry, {
+            disabledProviders: ["email"],
+        });
+        await expect(
+            service.requestCode("email", "user@example.com")
+        ).rejects.toThrow(ChannelVerificationDisabledError);
+        expect(sentCode).toBeNull();
+    });
+
+    it("未命中的 provider 正常生成与校验", async () => {
+        registry.senders.set("phone", mockSender);
+        registry.verifiers.set("phone", mockVerifier);
+        const service = createChannelVerification(registry, {
+            disabledProviders: ["email"],
+        });
+        const code = await service.requestCode("phone", "13800000000");
+        expect(code).toMatch(/^\d{6}$/);
+        verifyResult = true;
+        await expect(service.verifyCode("phone", "13800000000", code)).resolves.toBe(true);
+    });
+
+    it("policy 缺省时全部放行（回归旧行为）", async () => {
+        const service = createChannelVerification(registry);
+        const code = await service.requestCode("email", "user@example.com");
+        expect(code).toMatch(/^\d{6}$/);
+    });
+
+    it("disabledProviders 为空数组时全部放行", async () => {
+        const service = createChannelVerification(registry, { disabledProviders: [] });
+        const code = await service.requestCode("email", "user@example.com");
+        expect(code).toMatch(/^\d{6}$/);
     });
 });
 

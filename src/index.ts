@@ -10,6 +10,7 @@ export type {
   OmniAuthConfig,
   OmniAuthRateLimitConfig,
   OmniAuthPasswordPolicy,
+  OmniAuthVerificationPolicy,
   ChannelAuthIntent,
   ChannelAuthInput,
   ChannelAuthResult,
@@ -31,6 +32,7 @@ export {
   WeakPasswordError,
   CredentialInvalidError,
   OAuthStateMismatchError,
+  ChannelVerificationDisabledError,
   isUniqueViolation,
 } from "./errors";
 

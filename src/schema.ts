@@ -57,6 +57,7 @@ export const socialAccount = table(
     profileData: jsonb().notNull().default({}),
     valid: integer().notNull().default(0),
     allowPasswordUpdate: integer().notNull().default(0),
+    /** 预留字段：当前无门禁消费；provider 级验证码禁用见 OmniAuthConfig.verificationPolicy */
     allowVerification: integer().notNull().default(0),
     createdAt: timestamptz().notNull().default("NOW()"),
     updatedAt: timestamptz().notNull(),

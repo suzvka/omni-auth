@@ -10,6 +10,7 @@ import type { DatabaseAdapter, WhereCondition } from "./adapters/database";
 import { verifyPassword } from "@better-auth/utils/password";
 import { createRequestContext } from "./adapters/request";
 import {
+    ChannelVerificationDisabledError,
     CredentialInvalidError,
     InvalidPasswordError,
     OmniAuthError,
@@ -1097,5 +1098,69 @@ describe("authenticateChannel 渠道写入原子性（4.1.0）", () => {
         // 事务回滚：两张表均无残留（旧版事务外 updateOne 会残留 user）
         expect(dump("user").length).toBe(0);
         expect(dump("socialAccount").length).toBe(0);
+    });
+});
+
+// ----------------------------------------------------------
+// 渠道验证码 provider 级门禁（7.1.0）
+// ----------------------------------------------------------
+
+describe("渠道验证码 provider 级门禁", () => {
+    it("禁用渠道：requestChannelCode 抛 CHANNEL_VERIFICATION_DISABLED", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            verificationPolicy: { disabledProviders: ["email"] },
+        });
+        await expect(
+            auth.requestChannelCode("email", "user@example.com")
+        ).rejects.toThrow(ChannelVerificationDisabledError);
+    });
+
+    it("禁用渠道：verifyChannelCode 抛 CHANNEL_VERIFICATION_DISABLED", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            verificationPolicy: { disabledProviders: ["email"] },
+        });
+        auth.registerVerificationVerifier("email", { verify: async () => true });
+        await expect(
+            auth.verifyChannelCode("email", "user@example.com", "123456")
+        ).rejects.toThrow(ChannelVerificationDisabledError);
+    });
+
+    it("禁用渠道：密码重置 requestPasswordReset 连带拦截", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            verificationPolicy: { disabledProviders: ["email"] },
+        });
+        await expect(
+            auth.requestPasswordReset("email", "user@example.com")
+        ).rejects.toThrow(ChannelVerificationDisabledError);
+    });
+
+    it("禁用渠道：密码重置 resetPassword 连带拦截", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            verificationPolicy: { disabledProviders: ["email"] },
+        });
+        auth.registerVerificationVerifier("email", { verify: async () => true });
+        await expect(
+            auth.resetPassword("email", "user@example.com", "123456", "newpass123")
+        ).rejects.toThrow(ChannelVerificationDisabledError);
+    });
+
+    it("未禁用渠道正常生成验证码", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb, {
+            verificationPolicy: { disabledProviders: ["email"] },
+        });
+        const code = await auth.requestChannelCode("phone", "13800000000");
+        expect(code).toMatch(/^\d{6}$/);
+    });
+
+    it("不配置 verificationPolicy 时行为不变（回归）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+        const code = await auth.requestChannelCode("email", "user@example.com");
+        expect(code).toMatch(/^\d{6}$/);
     });
 });

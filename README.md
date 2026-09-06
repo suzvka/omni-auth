@@ -96,7 +96,7 @@ await auth.scim.list({ pagination: { startIndex: 1, count: 20 }, filter: null })
 | OAuth 2.0 Server | 客户端、授权码、PKCE、refresh token、scope 协商 |
 | 外部 OAuth 登录 | Google / GitHub / 微信 provider 工厂，`state` 库内强制比对 |
 | SCIM 2.0 | 用户目录管理面：list / get / create / update / patch / remove |
-| 验证码委托 | 库生成密码学安全种子码，投递 / 校验委托你的网关 |
+| 验证码委托 | 库生成密码学安全种子码，投递 / 校验委托你的网关；可按 provider 声明禁用（生成 + 校验闭环） |
 | 限流与审计 | 可注入 Redis 限流器，审计事件钩子开箱即用 |
 
 ## 📚 深入了解

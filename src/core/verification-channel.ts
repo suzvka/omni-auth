@@ -8,6 +8,12 @@
 //    无条件透传返回值，不做任何状态存储。
 // 验证码的存储、TTL、一次性消费、防重放均由渠道实现方自行保证。
 //
+// 7.1.0 起 createChannelVerification 可注入 VerificationPolicy：命中
+// disabledProviders 的渠道在编排器层被拒绝（生成 + 校验闭环）。该门禁是
+// policy 驱动的通用编排能力（对任意 provider 一视同仁），非渠道特化逻辑，
+// 不违背全渠道平权；门禁只在编排器工厂产物上生效，底层原语 requestCode /
+// verifyCode 保持无门禁。
+//
 // 3.0.0 起注册表收编为 OmniAuth 实例成员（OmniRegistry），
 // 模块级全局注册函数已弃用，仅转发到最近创建的实例。
 // ============================================================
@@ -15,6 +21,7 @@
 import { randomInt } from "crypto";
 import type { SocialAccountRef } from "../social/token";
 import { requireActiveRegistry, type OmniRegistry } from "../registry";
+import { ChannelVerificationDisabledError } from "../errors";
 
 // ---- 类型 ----
 
@@ -47,6 +54,22 @@ export interface VerificationVerifier {
 // ---- 注册表所需的最小视图 ----
 
 export type VerificationRegistry = Pick<OmniRegistry, "senders" | "verifiers">;
+
+/** 验证码渠道策略（provider 级 opt-in；7.1.0） */
+export interface VerificationPolicy {
+    /** 禁用验证码能力（生成 + 校验）的 provider 名单；缺省/空 = 全部允许 */
+    disabledProviders?: string[];
+}
+
+/** 命中禁用名单则抛错（精确匹配，与注册表 provider key 语义一致） */
+function assertProviderEnabled(
+    policy: VerificationPolicy | undefined,
+    provider: string
+): void {
+    if (policy?.disabledProviders?.includes(provider)) {
+        throw new ChannelVerificationDisabledError(provider);
+    }
+}
 
 // ---- 弃用的模块级全局注册函数（转发到最近实例） ----
 
@@ -164,25 +187,35 @@ export async function verifyCode(
 
 // ---- 工厂（auth.ts 构造时使用，依赖注入实例注册表） ----
 
-/** 渠道验证码编排器：生成种子码 + 委托验证，无状态、无 db 依赖 */
-export function createChannelVerification(registry: VerificationRegistry) {
+/**
+ * 渠道验证码编排器：生成种子码 + 委托验证，无状态、无 db 依赖；可选 provider 级门禁。
+ *
+ * 两方法均为 async —— 门禁命中时以 rejected promise 抛错，与 Promise 返回类型契约一致；
+ * 勿改回同步方法，否则 CHANNEL_VERIFICATION_DISABLED 会同步冒泡、绕过调用方 .catch/.rejects。
+ */
+export function createChannelVerification(
+    registry: VerificationRegistry,
+    policy?: VerificationPolicy
+) {
     return {
-        /** 生成种子码并（可选）投递，返回种子码 */
-        requestCode(
+        /** 生成种子码并（可选）投递，返回种子码；禁用渠道以 rejected promise 抛 CHANNEL_VERIFICATION_DISABLED */
+        async requestCode(
             provider: string,
             providerOpenid: string,
             channelRef?: SocialAccountRef
         ): Promise<string> {
+            assertProviderEnabled(policy, provider);
             return requestCode(registry, provider, providerOpenid, channelRef);
         },
 
-        /** 委托渠道验证验证码 */
-        verifyCode(
+        /** 委托渠道验证验证码；禁用渠道以 rejected promise 抛 CHANNEL_VERIFICATION_DISABLED */
+        async verifyCode(
             provider: string,
             providerOpenid: string,
             code: string,
             channelRef?: SocialAccountRef
         ): Promise<boolean> {
+            assertProviderEnabled(policy, provider);
             return verifyCode(registry, provider, providerOpenid, code, channelRef);
         },
     };
