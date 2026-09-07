@@ -252,6 +252,48 @@ describe("OmniAuth 凭证校验", () => {
         await expect(weakSignUp()).rejects.toThrow("密码长度不能少于 8 位");
     });
 
+    it("resetPassword 新密码长度不足时拒绝（WeakPasswordError），密码不变", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        // 注册渠道验证码 sender/verifier（闭包记录最新投递的码）
+        let sentCode: string | null = null;
+        auth.registerVerificationSender("email", {
+            async send(_channel, code) {
+                sentCode = code;
+            },
+        });
+        auth.registerVerificationVerifier("email", {
+            async verify(_channel, code) {
+                return sentCode === code;
+            },
+        });
+
+        // 注册用户（含密码）
+        await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "reset-weak@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "oldpass123" },
+            profile: { name: "ResetWeak" },
+        });
+
+        // 请求重置后提交弱新密码 → 拒绝
+        await auth.requestPasswordReset("email", "reset-weak@test.local");
+        await expect(
+            auth.resetPassword("email", "reset-weak@test.local", sentCode!, "1234567")
+        ).rejects.toThrow(WeakPasswordError);
+
+        // 密码未变：旧密码仍可登录
+        const signIn = await auth.authenticateChannel({
+            provider: "email",
+            providerOpenid: "reset-weak@test.local",
+            intent: "signIn",
+            credential: { type: "password", value: "oldpass123" },
+        });
+        expect(signIn.isNewUser).toBe(false);
+    });
+
     it("intent: signUp 渠道重复时拒绝（注册冲突即错误）", async () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);

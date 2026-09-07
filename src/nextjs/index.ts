@@ -123,7 +123,7 @@ export interface QuickAuthConfig {
   audit?: import("../core/audit").AuditHandler;
   /** 速率限制配置 */
   rateLimit?: import("../auth").OmniAuthRateLimitConfig;
-  /** 密码策略（4.1.0；不配置时保持默认最短 6 位） */
+  /** 密码策略（4.1.0；不配置时默认最短 8 位） */
   passwordPolicy?: import("../auth").OmniAuthPasswordPolicy;
   /**
    * 显式接受非原子多表写入（默认关闭，7.0.0）。

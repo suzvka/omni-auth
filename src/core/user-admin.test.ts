@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createUserAdmin } from "./user-admin";
+import { WeakPasswordError } from "../errors";
 import type { DatabaseAdapter } from "../adapters/database";
 import type { SessionService } from "./session";
 
@@ -85,8 +86,19 @@ describe("createUserAdmin", () => {
     });
 
     await expect(
-      admin.createUser({ email: "taken@example.com", name: "T", password: "x", source: "admin" })
+      admin.createUser({ email: "taken@example.com", name: "T", password: "another-secret-456", source: "admin" })
     ).rejects.toThrow("该邮箱已被注册");
+    expect(db.create).not.toHaveBeenCalled();
+  });
+
+  it("createUser：密码长度不足时拒绝（WeakPasswordError）且不落库", async () => {
+    const { db } = createMockAdapter();
+    const sessions = createMockSessions();
+    const admin = createUserAdmin(db, sessions);
+
+    await expect(
+      admin.createUser({ email: "weak@example.com", name: "W", password: "1234567", source: "admin" })
+    ).rejects.toThrow(WeakPasswordError);
     expect(db.create).not.toHaveBeenCalled();
   });
 
@@ -157,6 +169,16 @@ describe("createUserAdmin", () => {
     expect(updateCall.update.password).not.toBe("new-password-123");
     expect(String(updateCall.update.password).length).toBeGreaterThan(20);
     expect(sessions.destroyUserSessions).toHaveBeenCalledWith("u-1");
+  });
+
+  it("updatePassword：密码长度不足时拒绝（WeakPasswordError）且不改密", async () => {
+    const { db } = createMockAdapter();
+    const sessions = createMockSessions();
+    const admin = createUserAdmin(db, sessions);
+
+    await expect(admin.updatePassword("u-1", "1234567")).rejects.toThrow(WeakPasswordError);
+    expect(db.updateOne).not.toHaveBeenCalled();
+    expect(sessions.destroyUserSessions).not.toHaveBeenCalled();
   });
 
   it("getUser：组装 id/name/active/channels", async () => {

@@ -1,4 +1,26 @@
 # Changelog
+## 7.2.0
+> **密码策略全入口贯通（重置 + 管理侧）**。`passwordPolicy.minLength` 此前仅在注册路径
+> （`authenticateChannel`）执行，密码重置与用户管理入口直接哈希落库——同一实例内
+> 注册被 8 位下限拦住的密码，重置时却能设置成功。本次将策略贯通到全部库内写密码入口。
+> 行为收紧。
+>
+> ### 行为变更
+>
+> - **`resetPassword` 执行密码长度策略**：新密码长度不足时抛 `WeakPasswordError`
+>   （消息与注册路径一致：「密码长度不能少于 N 位」）。校验置于验码前——弱密码请求
+>   不消费一次性验证码，用户可直接换强密码重试。
+> - **`auth.users.createUser` / `auth.users.updatePassword` 执行同一策略**：
+>   显式提供 `password` 时校验（未提供时自动生成 UUID，不受影响）。
+> - 策略值经实例配置 `passwordPolicy.minLength` 单一来源透传（`createPasswordReset`
+>   deps / `createUserAdmin` options 新增可选 `minLength`，缺省 8，与注册侧默认一致；
+>   二者均为包内工厂，非公开 API，宿主无感）。
+>
+> ### 其他
+>
+> - **文档修正**：`createQuickAuth` 的 `passwordPolicy` 注释「不配置时保持默认最短 6 位」
+>   为陈旧漂移，实际默认 8 位，已修正。
+
 ## 7.1.0
 > **渠道验证码 provider 级禁用门禁（opt-in）**。新增 `OmniAuthConfig.verificationPolicy`，
 > 声明某些渠道不可用于验证码；默认不配置时行为与 7.0.0 完全一致。非破坏性。

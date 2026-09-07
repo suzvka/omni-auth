@@ -12,6 +12,7 @@ import { randomUUID } from "crypto";
 import { hashPassword } from "@better-auth/utils/password";
 import type { DatabaseAdapter } from "../adapters/database";
 import { withTransaction } from "../adapters/database";
+import { WeakPasswordError } from "../errors";
 import { createSocialService } from "../social/service";
 import { normalizeUserFlag, type SessionService } from "./session";
 
@@ -57,7 +58,7 @@ export interface ListUsersParams {
 export interface UserAdminService {
   createUser(params: CreateUserParams): Promise<{ userId: string; user: unknown }>;
   updateUser(userId: string, params: UpdateUserParams): Promise<void>;
-  /** 修改用户密码（哈希后写入，并吊销该用户全部会话） */
+  /** 修改用户密码（哈希后写入，并吊销该用户全部会话；弱密码拒绝） */
   updatePassword(userId: string, newPassword: string): Promise<void>;
   getUser(userId: string): Promise<UserView | null>;
   listUsers(params: ListUsersParams): Promise<{
@@ -77,10 +78,18 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/** 用户管理工厂选项 */
+export interface UserAdminOptions {
+  /** 密码最小长度（缺省 8，与 OmniAuthPasswordPolicy 默认一致） */
+  minLength?: number;
+}
+
 export function createUserAdmin(
   db: DatabaseAdapter,
-  sessions: SessionService
+  sessions: SessionService,
+  options?: UserAdminOptions
 ): UserAdminService {
+  const minLength = options?.minLength ?? 8;
   const social = createSocialService(db);
 
   async function listUserEmails(
@@ -104,6 +113,11 @@ export function createUserAdmin(
 
   return {
     async createUser(params) {
+      // 密码策略：与注册路径（authenticateChannel）同一 minLength
+      // （未提供密码时自动生成 UUID，无需校验）
+      if (params.password !== undefined && params.password.length < minLength) {
+        throw new WeakPasswordError(`密码长度不能少于 ${minLength} 位`);
+      }
       const hashedPassword = await hashPassword(params.password ?? randomUUID());
       const userId = randomUUID();
       const now = new Date();
@@ -202,6 +216,10 @@ export function createUserAdmin(
     },
 
     async updatePassword(userId, newPassword) {
+      // 密码策略：与注册路径（authenticateChannel）同一 minLength
+      if (newPassword.length < minLength) {
+        throw new WeakPasswordError(`密码长度不能少于 ${minLength} 位`);
+      }
       const hashedPassword = await hashPassword(newPassword);
       await db.updateOne({
         model: "user",

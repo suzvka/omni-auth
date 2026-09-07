@@ -341,10 +341,11 @@ export class OmniAuth {
       config.verificationPolicy
     );
 
-    // 密码重置（依赖实例级渠道验证码服务）
+    // 密码重置（依赖实例级渠道验证码服务；透传密码策略，防重置绕过注册侧校验）
     this._passwordReset = createPasswordReset({
       db: config.database,
       channelVerification: this._channelVerification,
+      minLength: this._passwordMinLength,
     });
 
     // ----------------------------------------------------------
@@ -359,7 +360,9 @@ export class OmniAuth {
       config.tokenAuthority ?? missingTokenAuthority()
     );
 
-    this._userAdmin = createUserAdmin(config.database, this._sessions);
+    this._userAdmin = createUserAdmin(config.database, this._sessions, {
+      minLength: this._passwordMinLength,
+    });
 
     this._scim = createScimUserHandler({
       db: config.database,

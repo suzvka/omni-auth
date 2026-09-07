@@ -4,6 +4,7 @@ import { createPasswordReset } from "./password";
 import { createChannelVerification } from "./verification-channel";
 import type { VerificationSender, VerificationVerifier } from "./verification-channel";
 import type { DatabaseAdapter, WhereCondition } from "../adapters/database";
+import { WeakPasswordError } from "../errors";
 import type { SocialAccountRef } from "../social/token";
 import { createRegistry, type OmniRegistry } from "../registry";
 
@@ -227,6 +228,22 @@ describe("createPasswordReset", () => {
             const user = db._records("user")[0];
             expect(await verifyPassword(user.password as string, NEW_PASSWORD)).toBe(true);
             expect(await verifyPassword(user.password as string, OLD_PASSWORD)).toBe(false);
+        });
+
+        it("新密码长度不足 → 抛 WeakPasswordError 且密码未变（验码前拦截）", async () => {
+            const pr = createPasswordReset({ db, channelVerification: createChannelVerification(registry) });
+
+            await pr.requestReset(PROVIDER, OPENID);
+            const code = sentCode!;
+
+            // deps 未传 minLength → 默认 8 生效（与注册路径默认一致）
+            await expect(
+                pr.reset(PROVIDER, OPENID, code, "1234567")
+            ).rejects.toThrow(WeakPasswordError);
+
+            // 密码未变：旧密码仍可验证
+            const user = db._records("user")[0];
+            expect(await verifyPassword(user.password as string, OLD_PASSWORD)).toBe(true);
         });
 
         it("无效验证码 → 抛错且不修改密码", async () => {
