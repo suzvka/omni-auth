@@ -30,13 +30,19 @@ export type { SocialAccountDTO } from "../social/types";
 export type { TokenRefresher, TokenRefreshResult, SocialAccountRef } from "../social/token";
 export type { OAuthProviderConfig, OAuthCallbackResult } from "../oauth/types";
 
-// 错误类
+// 错误类（对齐 root：基类 + 全部领域错误，Next.js 消费者只从本入口即可完整 catch）
 export {
+  OmniAuthError,
   UnauthorizedError,
   InvalidPasswordError,
   SocialAccountConflictError,
+  RateLimitedError,
   UserExistsError,
   WeakPasswordError,
+  CredentialInvalidError,
+  OAuthStateMismatchError,
+  ChannelVerificationDisabledError,
+  isUniqueViolation,
 } from "../errors";
 
 /** 从 Next.js headers() 构建 RequestContext */

@@ -141,13 +141,13 @@ describe("createSocialService", () => {
     it("应成功绑定社交账户", async () => {
       const result = await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_abc",
+        identifier: "oid_abc",
         accessToken: "at_001",
       });
 
       expect(result.userId).toBe("user_1");
       expect(result.provider).toBe("wechat");
-      expect(result.providerOpenid).toBe("oid_abc");
+      expect(result.identifier).toBe("oid_abc");
       expect(result.accessToken).toBe("at_001");
       expect(result.id).toBeDefined();
       expect(result.createdAt).toBeInstanceOf(Date);
@@ -158,7 +158,7 @@ describe("createSocialService", () => {
       // 断言 UUID 格式可确保 bindToUser 显式传入 id（autoSync 建表无 DEFAULT 的回归防护）
       const result = await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_uuid",
+        identifier: "oid_uuid",
       });
 
       expect(result.id).toMatch(
@@ -169,11 +169,11 @@ describe("createSocialService", () => {
     it("每次绑定生成不同的 id", async () => {
       const r1 = await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_uuid_1",
+        identifier: "oid_uuid_1",
       });
       const r2 = await service.bindToUser("user_2", {
         provider: "wechat",
-        providerOpenid: "oid_uuid_2",
+        identifier: "oid_uuid_2",
       });
 
       expect(r1.id).not.toBe(r2.id);
@@ -182,13 +182,13 @@ describe("createSocialService", () => {
     it("同一 provider+openid 重复绑定应抛 SocialAccountConflictError", async () => {
       await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_dup",
+        identifier: "oid_dup",
       });
 
       await expect(
         service.bindToUser("user_2", {
           provider: "wechat",
-          providerOpenid: "oid_dup",
+          identifier: "oid_dup",
         })
       ).rejects.toThrow(SocialAccountConflictError);
     });
@@ -196,11 +196,11 @@ describe("createSocialService", () => {
     it("同一 provider 不同 openid 可绑定不同用户", async () => {
       const r1 = await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_a",
+        identifier: "oid_a",
       });
       const r2 = await service.bindToUser("user_2", {
         provider: "wechat",
-        providerOpenid: "oid_b",
+        identifier: "oid_b",
       });
 
       expect(r1.userId).toBe("user_1");
@@ -211,7 +211,7 @@ describe("createSocialService", () => {
       const expires = new Date("2026-12-31");
       const result = await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_exp",
+        identifier: "oid_exp",
         tokenExpiresAt: expires,
       });
 
@@ -222,7 +222,7 @@ describe("createSocialService", () => {
       const ts = Date.now() + 3600000;
       const result = await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_ts",
+        identifier: "oid_ts",
         tokenExpiresAt: ts,
       });
 
@@ -233,7 +233,7 @@ describe("createSocialService", () => {
     it("应正确处理 profileData", async () => {
       const result = await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_profile",
+        identifier: "oid_profile",
         profileData: { nickname: "test", avatar: "url" },
       });
 
@@ -280,7 +280,7 @@ describe("createSocialService", () => {
     it("应成功解绑社交账户", async () => {
       const created = await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_unbind",
+        identifier: "oid_unbind",
       });
 
       await service.unbindFromUser(created.id);
@@ -302,11 +302,11 @@ describe("createSocialService", () => {
     it("应列出用户的所有社交账户", async () => {
       await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_1",
+        identifier: "oid_1",
       });
       await service.bindToUser("user_1", {
         provider: "google",
-        providerOpenid: "oid_2",
+        identifier: "oid_2",
       });
 
       const list = await service.listByUser("user_1");
@@ -326,7 +326,7 @@ describe("createSocialService", () => {
     it("应找到已绑定的社交账户", async () => {
       await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_find",
+        identifier: "oid_find",
       });
 
       const found = await service.findByProvider("wechat", "oid_find");
@@ -358,7 +358,7 @@ describe("createSocialService", () => {
       const future = new Date(Date.now() + 3600000); // 1 小时后过期
       await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_fresh",
+        identifier: "oid_fresh",
         accessToken: "old_token",
         tokenExpiresAt: future,
       });
@@ -378,7 +378,7 @@ describe("createSocialService", () => {
       const past = new Date(Date.now() - 3600000); // 1 小时前已过期
       await service.bindToUser("user_1", {
         provider: "wechat",
-        providerOpenid: "oid_expired",
+        identifier: "oid_expired",
         accessToken: "old_token",
         refreshToken: "old_refresh",
         tokenExpiresAt: past,
@@ -399,7 +399,7 @@ describe("createSocialService", () => {
       const past = new Date(Date.now() - 3600000);
       await service.bindToUser("user_1", {
         provider: "github",
-        providerOpenid: "oid_no_refresher",
+        identifier: "oid_no_refresher",
         accessToken: "old_gh_token",
         tokenExpiresAt: past,
       });

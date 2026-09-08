@@ -32,20 +32,20 @@ import { createDbFacade } from "../models";
 export interface SocialServiceForOAuth {
     findByProvider(
         provider: string,
-        providerOpenid: string,
+        identifier: string,
     ): Promise<{
         userId: string;
         id: string;
-        valid: number;
-        allowPasswordUpdate: number;
+        valid: boolean;
+        allowPasswordUpdate: boolean;
     } | null>;
     bindToUser(
         userId: string,
         input: Record<string, unknown>,
     ): Promise<{
         id: string;
-        valid: number;
-        allowPasswordUpdate: number;
+        valid: boolean;
+        allowPasswordUpdate: boolean;
     }>;
 }
 
@@ -295,7 +295,7 @@ export function createOAuthHandler(deps: {
                 channel: {
                     id: existingSocial.id,
                     provider,
-                    providerOpenid: exchanged.openid,
+                    identifier: exchanged.openid,
                     valid: existingSocial.valid,
                     allowPasswordUpdate: existingSocial.allowPasswordUpdate,
                 },
@@ -312,8 +312,8 @@ export function createOAuthHandler(deps: {
 
         let bindResult: {
             id: string;
-            valid: number;
-            allowPasswordUpdate: number;
+            valid: boolean;
+            allowPasswordUpdate: boolean;
         };
 
         try {
@@ -335,7 +335,7 @@ export function createOAuthHandler(deps: {
                 // 绑定社交账户（valid=1，真实的 OAuth 绑定）
                 return socialService(tx).bindToUser(userId, {
                     provider,
-                    providerOpenid: exchanged.openid,
+                    identifier: exchanged.openid,
                     accessToken: exchanged.accessToken,
                     refreshToken: exchanged.refreshToken,
                     tokenExpiresAt: exchanged.expiresAt,
@@ -343,8 +343,8 @@ export function createOAuthHandler(deps: {
                         ...(exchanged.profileData ?? {}),
                         ...(exchanged.email ? { email: exchanged.email } : {}),
                     },
-                    valid: 1,
-                    allowPasswordUpdate: 0,
+                    valid: true,
+                    allowPasswordUpdate: false,
                 });
             });
         } catch (err) {
@@ -371,7 +371,7 @@ export function createOAuthHandler(deps: {
             channel: {
                 id: bindResult.id,
                 provider,
-                providerOpenid: exchanged.openid,
+                identifier: exchanged.openid,
                 valid: bindResult.valid,
                 allowPasswordUpdate: bindResult.allowPasswordUpdate,
             },

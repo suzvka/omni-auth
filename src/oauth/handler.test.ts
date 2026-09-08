@@ -180,8 +180,8 @@ describe("createOAuthHandler — state 强制校验", () => {
         ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "u_ok",
             id: "sa_ok",
-            valid: 1,
-            allowPasswordUpdate: 0,
+            valid: true,
+            allowPasswordUpdate: false,
         });
 
         const result = await ctx.handler(
@@ -222,8 +222,8 @@ describe("createOAuthHandler — 已有绑定用户", () => {
         ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "existing_user",
             id: "sa_1",
-            valid: 1,
-            allowPasswordUpdate: 0,
+            valid: true,
+            allowPasswordUpdate: false,
         });
 
         const result = await ctx.handler(
@@ -239,9 +239,9 @@ describe("createOAuthHandler — 已有绑定用户", () => {
         expect(result.channel).toEqual({
             id: "sa_1",
             provider: "wechat",
-            providerOpenid: "oid_existing",
-            valid: 1,
-            allowPasswordUpdate: 0,
+            identifier: "oid_existing",
+            valid: true,
+            allowPasswordUpdate: false,
         });
 
         // 审计事件发布
@@ -289,8 +289,8 @@ describe("createOAuthHandler — 新用户注册", () => {
         ctx.mockSocialService.findByProvider.mockResolvedValue(null);
         ctx.mockSocialService.bindToUser.mockResolvedValue({
             id: "sa_new",
-            valid: 1,
-            allowPasswordUpdate: 0,
+            valid: true,
+            allowPasswordUpdate: false,
         });
 
         const result = await ctx.handler(
@@ -307,9 +307,9 @@ describe("createOAuthHandler — 新用户注册", () => {
         expect(result.channel).toEqual({
             id: "sa_new",
             provider: "google",
-            providerOpenid: "g_new_user",
-            valid: 1,
-            allowPasswordUpdate: 0,
+            identifier: "g_new_user",
+            valid: true,
+            allowPasswordUpdate: false,
         });
 
         // 5.0.0 渠道化：OAuth 新用户无密码（password=null，不生成随机密码）
@@ -325,10 +325,10 @@ describe("createOAuthHandler — 新用户注册", () => {
             result.userId,
             expect.objectContaining({
                 provider: "google",
-                providerOpenid: "g_new_user",
+                identifier: "g_new_user",
                 accessToken: "at_google",
-                valid: 1,
-                allowPasswordUpdate: 0,
+                valid: true,
+                allowPasswordUpdate: false,
             }),
         );
 
@@ -405,7 +405,7 @@ describe("createOAuthHandler — 新用户注册", () => {
             expect.any(String),
             expect.objectContaining({
                 provider: "github",
-                providerOpenid: "gh_with_email",
+                identifier: "gh_with_email",
                 profileData: expect.objectContaining({ email: "real@example.com" }),
             })
         );

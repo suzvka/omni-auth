@@ -205,7 +205,7 @@ describe("createUserAdmin", () => {
         expect.objectContaining({
           id: "c-1",
           provider: "email",
-          providerOpenid: "foo@example.com",
+          identifier: "foo@example.com",
         }),
       ],
     });

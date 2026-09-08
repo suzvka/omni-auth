@@ -78,8 +78,8 @@ export interface OAuthCallbackResult {
     channel: {
         id: string;
         provider: string;
-        providerOpenid: string;
-        valid: number;
-        allowPasswordUpdate: number;
+        identifier: string;
+        valid: boolean;
+        allowPasswordUpdate: boolean;
     };
 }

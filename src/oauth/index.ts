@@ -3,7 +3,6 @@
 // ============================================================
 
 export type { OAuthProviderConfig, OAuthCallbackResult } from "./types";
-export { registerOAuthProvider, getOAuthProvider } from "./registry";
 export { createOAuthHandler } from "./handler";
 export type {
     OAuthHandler,

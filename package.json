@@ -1,6 +1,6 @@
 {
   "name": "omni-auth",
-  "version": "7.2.0",
+  "version": "8.0.0",
   "description": "OmniAuth — omnichannel authentication utility library with first-class Next.js integration",
   "author": "Omni Auth Contributors",
   "license": "MIT",
@@ -41,6 +41,21 @@
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js",
       "require": "./dist/schema.cjs"
+    },
+    "./scim": {
+      "types": "./dist/scim.d.ts",
+      "import": "./dist/scim.js",
+      "require": "./dist/scim.cjs"
+    },
+    "./oauth": {
+      "types": "./dist/oauth.d.ts",
+      "import": "./dist/oauth.js",
+      "require": "./dist/oauth.cjs"
+    },
+    "./oauth-server": {
+      "types": "./dist/oauth-server.d.ts",
+      "import": "./dist/oauth-server.js",
+      "require": "./dist/oauth-server.cjs"
     },
     "./codegen-ddl": {
       "types": "./dist/codegen-ddl.d.ts",

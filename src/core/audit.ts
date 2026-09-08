@@ -5,11 +5,9 @@
 // 使用者自行决定如何持久化（DB / 文件 / 外部日志服务）。
 //
 // 3.0.0 起审计处理器收编为 OmniAuth 实例成员（OmniRegistry，
-// 经 OmniAuthConfig.audit 或实例方法 setAuditHandler 配置），
-// 模块级全局函数已弃用，仅转发到最近创建的实例。
+// 经 OmniAuthConfig.audit 或实例方法 setAuditHandler 配置）；
+// 8.0.0 移除已弃用的模块级全局函数。
 // ============================================================
-
-import { getActiveRegistry, requireActiveRegistry } from "../registry";
 
 // ----------------------------------------------------------
 // 审计事件类型
@@ -52,30 +50,6 @@ export interface AuditEvent {
 }
 
 export type AuditHandler = (event: AuditEvent) => void | Promise<void>;
-
-// ----------------------------------------------------------
-// 全局审计处理器（已弃用 — 转发到最近创建的实例注册表）
-// ----------------------------------------------------------
-
-/** @deprecated 使用 OmniAuthConfig.audit 或实例方法 setAuditHandler 替代 */
-export function setAuditHandler(handler: AuditHandler): void {
-  requireActiveRegistry("setAuditHandler").auditHandler = handler;
-}
-
-/** @deprecated 使用 OmniAuth 实例注册表替代 */
-export function getAuditHandler(): AuditHandler | null {
-  return getActiveRegistry()?.auditHandler ?? null;
-}
-
-/**
- * 发布审计事件（异步、不抛异常）。
- *
- * @deprecated 全局函数仅作过渡兼容；库内部经实例注册表发布事件。
- */
-export async function publishAuditEvent(event: Omit<AuditEvent, "timestamp">): Promise<void> {
-  const handler = getActiveRegistry()?.auditHandler;
-  await dispatchAuditEvent(handler, event);
-}
 
 /** 实例级发布入口：handler 缺省时静默跳过，处理失败不抛异常 */
 export async function dispatchAuditEvent(

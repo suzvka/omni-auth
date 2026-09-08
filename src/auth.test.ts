@@ -208,11 +208,11 @@ describe("OmniAuth 凭证校验", () => {
 
         const result = await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "alice@test.local",
+            identifier: "alice@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "Alice" },
-            channelData: { allowPasswordUpdate: 1, allowVerification: 1 },
+            channelData: { allowPasswordUpdate: true, allowVerification: true },
         });
 
         // 返回用户信息
@@ -242,7 +242,7 @@ describe("OmniAuth 凭证校验", () => {
         const weakSignUp = () =>
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "short@test.local",
+                identifier: "short@test.local",
                 intent: "signUp",
                 credential: { type: "password", value: "1234567" },
                 profile: { name: "Short" },
@@ -272,7 +272,7 @@ describe("OmniAuth 凭证校验", () => {
         // 注册用户（含密码）
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "reset-weak@test.local",
+            identifier: "reset-weak@test.local",
             intent: "signUp",
             credential: { type: "password", value: "oldpass123" },
             profile: { name: "ResetWeak" },
@@ -287,7 +287,7 @@ describe("OmniAuth 凭证校验", () => {
         // 密码未变：旧密码仍可登录
         const signIn = await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "reset-weak@test.local",
+            identifier: "reset-weak@test.local",
             intent: "signIn",
             credential: { type: "password", value: "oldpass123" },
         });
@@ -300,7 +300,7 @@ describe("OmniAuth 凭证校验", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "dup@test.local",
+            identifier: "dup@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "Dup1" },
@@ -309,7 +309,7 @@ describe("OmniAuth 凭证校验", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "dup@test.local",
+                identifier: "dup@test.local",
                 intent: "signUp",
                 credential: { type: "password", value: "password456" },
                 profile: { name: "Dup2" },
@@ -323,7 +323,7 @@ describe("OmniAuth 凭证校验", () => {
 
         const signUpResult = await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "bob@test.local",
+            identifier: "bob@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "Bob" },
@@ -331,7 +331,7 @@ describe("OmniAuth 凭证校验", () => {
 
         const signInResult = await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "bob@test.local",
+            identifier: "bob@test.local",
             intent: "signIn",
             credential: { type: "password", value: "password123" },
         });
@@ -347,7 +347,7 @@ describe("OmniAuth 凭证校验", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "eve@test.local",
+            identifier: "eve@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "Eve" },
@@ -356,7 +356,7 @@ describe("OmniAuth 凭证校验", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "eve@test.local",
+                identifier: "eve@test.local",
                 intent: "signIn",
                 credential: { type: "password", value: "wrong-password" },
             })
@@ -370,7 +370,7 @@ describe("OmniAuth 凭证校验", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "nobody@test.local",
+                identifier: "nobody@test.local",
                 intent: "signIn",
                 credential: { type: "password", value: "password123" },
             })
@@ -394,7 +394,7 @@ describe("OmniAuth 凭证校验", () => {
 
         const result = await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "hook@test.local",
+            identifier: "hook@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "Hook" },
@@ -411,7 +411,7 @@ describe("OmniAuth 凭证校验", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "biz@test.local",
+            identifier: "biz@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "Biz" },
@@ -428,7 +428,7 @@ describe("OmniAuth 凭证校验", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "hash@test.local",
+            identifier: "hash@test.local",
             intent: "signUp",
             credential: { type: "password", value: "mypassword" },
             profile: { name: "Hash" },
@@ -462,7 +462,7 @@ describe("OmniAuth 类型化错误", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "t1@err.local",
+            identifier: "t1@err.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "T" },
@@ -471,7 +471,7 @@ describe("OmniAuth 类型化错误", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "t1@err.local",
+                identifier: "t1@err.local",
                 intent: "signUp",
                 credential: { type: "password", value: "password456" },
                 profile: { name: "T2" },
@@ -484,7 +484,7 @@ describe("OmniAuth 类型化错误", () => {
         const auth = createTestAuth(memDb);
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "t2@err.local",
+            identifier: "t2@err.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "T" },
@@ -493,7 +493,7 @@ describe("OmniAuth 类型化错误", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "t2@err.local",
+                identifier: "t2@err.local",
                 intent: "signIn",
                 credential: { type: "password", value: "wrong" },
             })
@@ -515,7 +515,7 @@ describe("限流键", () => {
             await auth.authenticateChannel(
                 {
                     provider: "email",
-                    providerOpenid: `rl${i}@test.local`,
+                    identifier: `rl${i}@test.local`,
                     intent: "signUp",
                     credential: { type: "password", value: "password123" },
                     profile: { name: "RL" },
@@ -528,7 +528,7 @@ describe("限流键", () => {
             auth.authenticateChannel(
                 {
                     provider: "email",
-                    providerOpenid: "rl3@test.local",
+                    identifier: "rl3@test.local",
                     intent: "signUp",
                     credential: { type: "password", value: "password123" },
                     profile: { name: "RL" },
@@ -543,7 +543,7 @@ describe("限流键", () => {
             auth.authenticateChannel(
                 {
                     provider: "email",
-                    providerOpenid: "rl3@test.local",
+                    identifier: "rl3@test.local",
                     intent: "signUp",
                     credential: { type: "password", value: "password123" },
                     profile: { name: "RL" },
@@ -562,7 +562,7 @@ describe("限流键", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "custom@rl.local",
+            identifier: "custom@rl.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "C" },
@@ -583,7 +583,8 @@ describe("authenticateChannel 非密码凭证契约", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "phone",
-                providerOpenid: "13800000000",
+                identifier: "13800000000",
+                intent: "upsert",
                 credential: { type: "smsCode", value: "123456" },
             })
         ).rejects.toThrow(CredentialInvalidError);
@@ -595,7 +596,8 @@ describe("authenticateChannel 非密码凭证契约", () => {
 
         const result = await auth.authenticateChannel({
             provider: "phone",
-            providerOpenid: "13800000001",
+            identifier: "13800000001",
+            intent: "upsert",
             credential: { type: "smsCode", value: "123456", verified: true },
             profile: { name: "手机用户" },
         });
@@ -618,7 +620,7 @@ describe("authenticateChannel 意图语义（6.0.0）", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "phone",
-                providerOpenid: "13800000002",
+                identifier: "13800000002",
                 intent: "signIn",
                 credential: { type: "smsCode", value: "123456", verified: true },
             })
@@ -631,7 +633,7 @@ describe("authenticateChannel 意图语义（6.0.0）", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "race@test.local",
+            identifier: "race@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "R1" },
@@ -677,7 +679,7 @@ describe("authenticateChannel 意图语义（6.0.0）", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "race@test.local",
+                identifier: "race@test.local",
                 intent: "signUp",
                 credential: { type: "password", value: "password456" },
                 profile: { name: "R2" },
@@ -695,7 +697,7 @@ describe("authenticateChannel 意图语义（6.0.0）", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "probe@test.local",
+                identifier: "probe@test.local",
                 intent: "signIn",
                 credential: { type: "password", value: "whatever" },
             })
@@ -715,7 +717,7 @@ describe("authenticateChannel 意图语义（6.0.0）", () => {
 
         const created = await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "upsert@test.local",
+            identifier: "upsert@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "U" },
@@ -723,7 +725,8 @@ describe("authenticateChannel 意图语义（6.0.0）", () => {
 
         const logged = await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "upsert@test.local",
+            identifier: "upsert@test.local",
+            intent: "upsert",
             credential: { type: "password", value: "password123" },
         });
 
@@ -837,7 +840,7 @@ describe("事务原子性（3.0.0 回退；7.0.0 能力协商）", () => {
 
         const result = await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "notx@test.local",
+            identifier: "notx@test.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "NoTx" },
@@ -902,7 +905,7 @@ describe("密码策略（4.1.0）", () => {
         const weakSignUp = () =>
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "p7@test.local",
+                identifier: "p7@test.local",
                 intent: "signUp",
                 credential: { type: "password", value: "1234567" },
                 profile: { name: "P" },
@@ -915,7 +918,7 @@ describe("密码策略（4.1.0）", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "p8@test.local",
+                identifier: "p8@test.local",
                 intent: "signUp",
                 credential: { type: "password", value: "12345678" },
                 profile: { name: "P" },
@@ -932,7 +935,8 @@ describe("密码策略（4.1.0）", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "phone",
-                providerOpenid: "13800000000",
+                identifier: "13800000000",
+                intent: "signUp",
                 credential: { type: "password", value: "1234567" },
                 profile: { name: "P" },
             })
@@ -946,7 +950,7 @@ describe("密码策略（4.1.0）", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "p8@test.local",
+                identifier: "p8@test.local",
                 intent: "signUp",
                 credential: { type: "password", value: "12345678" },
                 profile: { name: "P" },
@@ -974,14 +978,14 @@ describe("限流加固（4.1.0）", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "reset@rl.local",
+            identifier: "reset@rl.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "R" },
         });
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "reset@rl.local",
+            identifier: "reset@rl.local",
             intent: "signIn",
             credential: { type: "password", value: "password123" },
         });
@@ -1003,7 +1007,7 @@ describe("限流加固（4.1.0）", () => {
 
         await auth.authenticateChannel({
             provider: "email",
-            providerOpenid: "fail@rl.local",
+            identifier: "fail@rl.local",
             intent: "signUp",
             credential: { type: "password", value: "password123" },
             profile: { name: "F" },
@@ -1011,7 +1015,7 @@ describe("限流加固（4.1.0）", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "email",
-                providerOpenid: "fail@rl.local",
+                identifier: "fail@rl.local",
                 intent: "signIn",
                 credential: { type: "password", value: "wrong" },
             })
@@ -1073,7 +1077,7 @@ describe("限流加固（4.1.0）", () => {
             await auth.authenticateChannel(
                 {
                     provider: "email",
-                    providerOpenid: `ip${i}@inj.local`,
+                    identifier: `ip${i}@inj.local`,
                     intent: "signUp",
                     credential: { type: "password", value: "password123" },
                     profile: { name: "I" },
@@ -1085,7 +1089,7 @@ describe("限流加固（4.1.0）", () => {
             auth.authenticateChannel(
                 {
                     provider: "email",
-                    providerOpenid: "ip3@inj.local",
+                    identifier: "ip3@inj.local",
                     intent: "signUp",
                     credential: { type: "password", value: "password123" },
                     profile: { name: "I" },
@@ -1107,13 +1111,14 @@ describe("authenticateChannel 渠道写入原子性（4.1.0）", () => {
 
         const result = await auth.authenticateChannel({
             provider: "wechat",
-            providerOpenid: "oid_atom",
+            identifier: "oid_atom",
+            intent: "upsert",
             credential: { type: "oauthCode", value: "code", verified: true },
-            channelData: { accessToken: "at_1", valid: 1, profileData: { vip: true } },
+            channelData: { accessToken: "at_1", valid: true, profileData: { vip: true } },
         });
 
         expect(result.isNewUser).toBe(true);
-        expect(result.channel.valid).toBe(1);
+        expect(result.channel.valid).toBe(true);
 
         const rows = memDb.dump("socialAccount");
         expect(rows.length).toBe(1);
@@ -1131,7 +1136,8 @@ describe("authenticateChannel 渠道写入原子性（4.1.0）", () => {
         await expect(
             auth.authenticateChannel({
                 provider: "wechat",
-                providerOpenid: "oid_fail",
+                identifier: "oid_fail",
+                intent: "upsert",
                 credential: { type: "oauthCode", value: "code", verified: true },
                 channelData: { accessToken: "at_x" },
             })
@@ -1204,5 +1210,70 @@ describe("渠道验证码 provider 级门禁", () => {
         const auth = createTestAuth(memDb);
         const code = await auth.requestChannelCode("email", "user@example.com");
         expect(code).toMatch(/^\d{6}$/);
+    });
+});
+
+// ----------------------------------------------------------
+// 8.0.0 公开契约回归：identifier 更名 / flag boolean / intent 必填
+// ----------------------------------------------------------
+
+describe("8.0.0 公开契约（DX 破坏性变更锁定）", () => {
+    it("注册返回 channel 以 identifier 承载标识、能力位为 boolean", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        const result = await auth.authenticateChannel({
+            provider: "email",
+            identifier: "contract@test.local",
+            intent: "signUp",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "Contract" },
+            channelData: { allowPasswordUpdate: true, allowVerification: true },
+        });
+
+        // identifier 字段存在且回显；无 providerOpenid 键（8.0.0 移除）
+        expect(result.channel.identifier).toBe("contract@test.local");
+        expect("providerOpenid" in result.channel).toBe(false);
+        // 能力位为 boolean（非 0/1）
+        expect(result.channel.allowPasswordUpdate).toBe(true);
+        expect(result.channel.allowVerification).toBe(true);
+        expect(typeof result.channel.valid).toBe("boolean");
+    });
+
+    it("intent 必填：显式 upsert 走「不存在则注册」，不再依赖默认", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+
+        const first = await auth.authenticateChannel({
+            provider: "email",
+            identifier: "explicit-upsert@test.local",
+            intent: "upsert",
+            credential: { type: "password", value: "password123" },
+            profile: { name: "U" },
+        });
+        expect(first.isNewUser).toBe(true);
+
+        // 已存在时 upsert 直接登录，不建号、不抛冲突
+        const second = await auth.authenticateChannel({
+            provider: "email",
+            identifier: "explicit-upsert@test.local",
+            intent: "upsert",
+            credential: { type: "password", value: "password123" },
+        });
+        expect(second.isNewUser).toBe(false);
+        expect(memDb.dump("user").length).toBe(1);
+    });
+
+    it("intent 必填：signIn 配非密码凭证仍拒（防凭空建号）", async () => {
+        const memDb = createInMemoryDb();
+        const auth = createTestAuth(memDb);
+        await expect(
+            auth.authenticateChannel({
+                provider: "phone",
+                identifier: "13900000000",
+                intent: "signIn",
+                credential: { type: "smsCode", value: "123456", verified: true },
+            })
+        ).rejects.toThrow(CredentialInvalidError);
     });
 });

@@ -2,10 +2,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
     requestCode,
     verifyCode,
-    registerVerificationSender,
-    registerVerificationVerifier,
-    getVerificationSender,
-    getVerificationVerifier,
     createChannelVerification,
 } from "./verification-channel";
 import type { VerificationSender, VerificationVerifier } from "./verification-channel";
@@ -71,7 +67,7 @@ describe("requestCode", () => {
 
         expect(sentChannelRef).not.toBeNull();
         expect(sentChannelRef!.provider).toBe("email");
-        expect(sentChannelRef!.providerOpenid).toBe("user@example.com");
+        expect(sentChannelRef!.identifier).toBe("user@example.com");
         expect(sentCode).toBe(code);
     });
 
@@ -95,7 +91,7 @@ describe("requestCode", () => {
         const fullRef: SocialAccountRef = {
             id: "ch-1",
             provider: "email",
-            providerOpenid: "user@example.com",
+            identifier: "user@example.com",
             accessToken: "tok-abc",
             refreshToken: null,
             tokenExpiresAt: null,
@@ -128,7 +124,7 @@ describe("verifyCode", () => {
 
         expect(verifiedChannelRef).not.toBeNull();
         expect(verifiedChannelRef!.provider).toBe("email");
-        expect(verifiedChannelRef!.providerOpenid).toBe("user@example.com");
+        expect(verifiedChannelRef!.identifier).toBe("user@example.com");
         expect(verifiedCode).toBe("654321");
     });
 
@@ -142,7 +138,7 @@ describe("verifyCode", () => {
         const fullRef: SocialAccountRef = {
             id: "ch-2",
             provider: "email",
-            providerOpenid: "user@example.com",
+            identifier: "user@example.com",
             accessToken: "tok-xyz",
             refreshToken: null,
             tokenExpiresAt: null,
@@ -240,24 +236,5 @@ describe("createChannelVerification provider 门禁", () => {
         const service = createChannelVerification(registry, { disabledProviders: [] });
         const code = await service.requestCode("email", "user@example.com");
         expect(code).toMatch(/^\d{6}$/);
-    });
-});
-
-// ---- 弃用全局注册函数（转发到活跃注册表） ----
-
-describe("注册表（弃用全局函数）", () => {
-    it("registerVerificationSender / getVerificationSender 往返一致", () => {
-        registerVerificationSender("phone", mockSender);
-        expect(getVerificationSender("phone")).toBe(mockSender);
-    });
-
-    it("registerVerificationVerifier / getVerificationVerifier 往返一致", () => {
-        registerVerificationVerifier("phone", mockVerifier);
-        expect(getVerificationVerifier("phone")).toBe(mockVerifier);
-    });
-
-    it("未注册渠道返回 undefined", () => {
-        expect(getVerificationSender("wechat")).toBeUndefined();
-        expect(getVerificationVerifier("wechat")).toBeUndefined();
     });
 });

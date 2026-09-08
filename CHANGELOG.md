@@ -1,4 +1,71 @@
 # Changelog
+## 8.0.0
+> **Consumer-facing DX 收敛：`identifier` 更名 + `intent` 必填 + 能力位 boolean +
+> root 公开面极简（子入口拆分）+ 存量 `@deprecated` 全清**。内部统一认证模型不变，
+> 本版把这些统一转化为对外的使用者体验。破坏性变更（major）。
+>
+> 定位说明：本包以 npm `^x` 版本被消费，caret 天然挡住存量用户自动升级；升级即
+> 主动选择破坏面并按本指南迁移。
+>
+> ### 破坏性变更
+>
+> - **#4a `providerOpenid` → `identifier`（全公开面一致更名）**：
+>   `ChannelAuthInput.providerOpenid`、`ChannelAuthResult.channel.providerOpenid`、
+>   `SocialAccountDTO.providerOpenid`、`SocialAccountRef.providerOpenid`、
+>   `OAuthCallbackResult.channel.providerOpenid` 统一改名为 `identifier`（“provider 内
+>   唯一身份标识”的中性语义，email/phone 不再被迫叫“openid”）。
+>   **DB 列仍为 `socialAccount.providerOpenid`**，由包内 adapter 边界映射（`toDTO` 读、
+>   `bindToUser` 写），无数据迁移、无 DDL 变更。无旧名 alias（硬切）。
+> - **#4c `intent` 改为必填（去默认 `upsert`）**：`ChannelAuthInput.intent` 由可选变为
+>   必填。此前漏写 `intent` 会默认 `upsert`（不存在则自动注册），对显式登录 API 风
+>   险高。现在所有调用方（含 OAuth 回调 / 管理侧建号）必须显式传 `"signUp" | "signIn"
+>   | "upsert"`。
+> - **#4d 对外能力位 `0/1` → `boolean`**：`ChannelAuthInput.channelData.{valid,
+>   allowPasswordUpdate,allowVerification}` 与返回体 `channel.*` 同名位、`SocialAccountDTO.*`
+>   均改为 `boolean`。DB 仍存 smallint 0/1，`toDTO` 经 `normalizeUserFlag` 读归一、`bindToUser`
+>   写时 `true→1 / false→0`。若你之前以真值判断读取（`if (channel.valid)`），行为不变。
+> - **#6 root 导出极简**：root `omni-auth` 不再导出高级能力与内部运行时 helper，改走
+>   子入口：`omni-auth/schema`（`syncSchema` + schema DSL + 表定义）、`omni-auth/oauth`
+>   （provider 工厂 `createGitHubProvider`/`createGoogleProvider`/`createWechatProvider` +
+>   `createOAuthHandler`）、`omni-auth/oauth-server`（OAuth Server 服务与 helper）、
+>   `omni-auth/scim`（`createScimUserHandler` / `ScimError` / schemas 等）。root 保留
+>   `createAuth`/`OmniAuth` + 完整错误族 + 仅为配置/调用服务的核心类型。`PgAdapter`/
+>   `createRequestContext` 仍在既有 `omni-auth/adapters/pg` / `omni-auth/request`。
+>   内部 helper（`normalizeEmail`/`normalizeUserFlag`/RBAC/`createMemoryRateLimiter`/
+>   `withTransaction`/CSRF/模型门面等）不再对外导出。
+> - **清理存量 `@deprecated`**（6 组）：`ChangfengAuth`/`ChangfengAuthConfig` 别名、模块级
+>   全局 `registerOAuthProvider`/`getOAuthProvider`、`registerTokenRefresher`/`getTokenRefresher`/
+>   `clearTokenRefreshers`、模块级 `registerVerificationSender`/`getVerificationSender`/
+>   `registerVerificationVerifier`/`getVerificationVerifier`、`setAuditHandler`/`getAuditHandler`/
+>   `publishAuditEvent`。均改用实例方法（`auth.registerOAuthProvider` 等）或 `OmniAuthConfig.audit`。
+>
+> ### 迁移指南
+>
+> ```ts
+> // before (7.x)
+> import { getSchemaById, ScimError } from "omni-auth";
+> import { setAuditHandler } from "omni-auth";
+> auth.authenticateChannel({ provider: "email", providerOpenid: email,
+>   credential: { type: "password", value: pw },            // 默认 upsert
+>   channelData: { allowPasswordUpdate: 1 } });
+>
+> // after (8.0.0)
+> import { getSchemaById, ScimError } from "omni-auth/scim";
+> auth.setAuditHandler(handler);                            // 或 createAuth({ audit })
+> auth.authenticateChannel({ provider: "email", identifier: email,
+>   intent: "signIn",                                       // 必填
+>   credential: { type: "password", value: pw },
+>   channelData: { allowPasswordUpdate: true } });          // boolean
+> ```
+> - 字段 `providerOpenid` → `identifier`（输入 + 返回体 + DTO）；`intent` 补上显式值（
+>   登录 `signIn` / 注册 `signUp` / OAuth 回调与建号 `upsert`）；`0/1` flag → `boolean`；
+>   高级 import 改对应子入口；模块级全局注册/审计函数改实例方法。
+>
+> ### 非破坏
+>
+> - `omni-auth/nextjs` 补齐完整错误族（含基类 `OmniAuthError`），Next.js 消费者可单入口 catch。
+> - DB schema 零变更（`providerOpenid` 列名与 smallint flag 存储不变）。
+
 ## 7.2.0
 > **密码策略全入口贯通（重置 + 管理侧）**。`passwordPolicy.minLength` 此前仅在注册路径
 > （`authenticateChannel`）执行，密码重置与用户管理入口直接哈希落库——同一实例内

@@ -20,7 +20,7 @@
 
 import { randomInt } from "crypto";
 import type { SocialAccountRef } from "../social/token";
-import { requireActiveRegistry, type OmniRegistry } from "../registry";
+import type { OmniRegistry } from "../registry";
 import { ChannelVerificationDisabledError } from "../errors";
 
 // ---- 类型 ----
@@ -71,38 +71,6 @@ function assertProviderEnabled(
     }
 }
 
-// ---- 弃用的模块级全局注册函数（转发到最近实例） ----
-
-/** @deprecated 使用 OmniAuth 实例方法 registerVerificationSender 替代 */
-export function registerVerificationSender(
-    provider: string,
-    sender: VerificationSender
-): void {
-    requireActiveRegistry("registerVerificationSender").senders.set(provider, sender);
-}
-
-/** @deprecated 使用 OmniAuth 实例注册表替代 */
-export function getVerificationSender(
-    provider: string
-): VerificationSender | undefined {
-    return requireActiveRegistry("getVerificationSender").senders.get(provider);
-}
-
-/** @deprecated 使用 OmniAuth 实例方法 registerVerificationVerifier 替代 */
-export function registerVerificationVerifier(
-    provider: string,
-    verifier: VerificationVerifier
-): void {
-    requireActiveRegistry("registerVerificationVerifier").verifiers.set(provider, verifier);
-}
-
-/** @deprecated 使用 OmniAuth 实例注册表替代 */
-export function getVerificationVerifier(
-    provider: string
-): VerificationVerifier | undefined {
-    return requireActiveRegistry("getVerificationVerifier").verifiers.get(provider);
-}
-
 // ---- 纯辅助 ----
 
 /** 当调用方未提供完整渠道引用时，构造最小 SocialAccountRef 供实现方使用 */
@@ -113,7 +81,7 @@ function buildMinimalRef(
     return {
         id: "",
         provider,
-        providerOpenid,
+        identifier: providerOpenid,
         accessToken: null,
         refreshToken: null,
         tokenExpiresAt: null,

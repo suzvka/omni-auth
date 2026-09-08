@@ -34,7 +34,7 @@ describe("bindToUser（autoSync 建表 + pg 适配器集成）", () => {
     // 绑定社交账户（全新库注册路径的真实写操作）
     const record = await social.bindToUser("user_1", {
       provider: "wechat",
-      providerOpenid: "oid_integration",
+      identifier: "oid_integration",
       accessToken: "at_int",
       profileData: { nickname: "集成测试" },
     });
@@ -58,11 +58,11 @@ describe("bindToUser（autoSync 建表 + pg 适配器集成）", () => {
 
     const r1 = await social.bindToUser("user_1", {
       provider: "wechat",
-      providerOpenid: "oid_a",
+      identifier: "oid_a",
     });
     const r2 = await social.bindToUser("user_2", {
       provider: "wechat",
-      providerOpenid: "oid_b",
+      identifier: "oid_b",
     });
 
     expect(r1.id).not.toBe(r2.id);

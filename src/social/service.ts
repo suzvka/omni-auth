@@ -12,6 +12,7 @@ import type { SocialAccountDTO } from "./types";
 import type { TokenRefresher, SocialAccountRef } from "./token";
 import { SocialAccountConflictError } from "../errors";
 import { createDbFacade } from "../models";
+import { normalizeUserFlag } from "../core/session";
 import type { SocialAccountRow } from "../schema";
 
 // ----------------------------------------------------------
@@ -48,14 +49,14 @@ function toDTO(record: SocialAccountRow): SocialAccountDTO {
     id: record.id,
     userId: record.userId,
     provider: record.provider,
-    providerOpenid: record.providerOpenid,
+    identifier: record.providerOpenid,
     accessToken: record.accessToken ?? null,
     refreshToken: record.refreshToken ?? null,
     tokenExpiresAt: record.tokenExpiresAt ?? null,
     profileData: parseProfileData(record.profileData),
-    valid: record.valid ?? 0,
-    allowPasswordUpdate: record.allowPasswordUpdate ?? 0,
-    allowVerification: record.allowVerification ?? 0,
+    valid: normalizeUserFlag(record.valid, false),
+    allowPasswordUpdate: normalizeUserFlag(record.allowPasswordUpdate, false),
+    allowVerification: normalizeUserFlag(record.allowVerification, false),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -65,7 +66,7 @@ function toSocialAccountRef(dto: SocialAccountDTO): SocialAccountRef {
   return {
     id: dto.id,
     provider: dto.provider,
-    providerOpenid: dto.providerOpenid,
+    identifier: dto.identifier,
     accessToken: dto.accessToken,
     refreshToken: dto.refreshToken,
     tokenExpiresAt: dto.tokenExpiresAt,
@@ -132,27 +133,27 @@ export function createSocialService(
       userId: string,
       input: {
         provider: string;
-        providerOpenid: string;
+        identifier: string;
         accessToken?: string;
         refreshToken?: string;
         tokenExpiresAt?: Date | number;
         profileData?: Record<string, unknown>;
-        valid?: number;
-        allowPasswordUpdate?: number;
-        allowVerification?: number;
+        valid?: boolean;
+        allowPasswordUpdate?: boolean;
+        allowVerification?: boolean;
       }
     ): Promise<SocialAccountDTO> {
       const existing = await dbf.socialAccount.findOne({
         where: [
           { field: "provider", value: input.provider },
-          { field: "providerOpenid", value: input.providerOpenid },
+          { field: "providerOpenid", value: input.identifier },
         ],
       });
 
       if (existing) {
         throw new SocialAccountConflictError(
           input.provider,
-          input.providerOpenid
+          input.identifier
         );
       }
 
@@ -164,7 +165,7 @@ export function createSocialService(
             id: randomUUID(),
             userId,
             provider: input.provider,
-            providerOpenid: input.providerOpenid,
+            providerOpenid: input.identifier,
             accessToken: input.accessToken,
             refreshToken: input.refreshToken,
             tokenExpiresAt:
@@ -174,9 +175,9 @@ export function createSocialService(
                   : new Date(input.tokenExpiresAt)
                 : null,
             profileData: input.profileData ?? {},
-            valid: input.valid ?? 0,
-            allowPasswordUpdate: input.allowPasswordUpdate ?? 0,
-            allowVerification: input.allowVerification ?? 0,
+            valid: input.valid ? 1 : 0,
+            allowPasswordUpdate: input.allowPasswordUpdate ? 1 : 0,
+            allowVerification: input.allowVerification ? 1 : 0,
             createdAt: new Date(),
             updatedAt: new Date(),
           },
@@ -208,12 +209,12 @@ export function createSocialService(
 
     async findByProvider(
       provider: string,
-      providerOpenid: string
+      identifier: string
     ): Promise<SocialAccountDTO | null> {
       const record = await dbf.socialAccount.findOne({
         where: [
           { field: "provider", value: provider },
-          { field: "providerOpenid", value: providerOpenid },
+          { field: "providerOpenid", value: identifier },
         ],
       });
       if (!record) return null;

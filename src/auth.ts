@@ -30,7 +30,7 @@ import { dispatchAuditEvent, type AuditEvent, type AuditHandler } from "./core/a
 import { createChannelVerification } from "./core/verification-channel";
 import type { VerificationSender, VerificationVerifier, VerificationPolicy } from "./core/verification-channel";
 import { createDbFacade, type DbFacade } from "./models";
-import { createSessionService, type SessionService } from "./core/session";
+import { createSessionService, normalizeUserFlag, type SessionService } from "./core/session";
 import { createUserAdmin, type UserAdminService } from "./core/user-admin";
 import {
   createOAuthServer,
@@ -145,18 +145,18 @@ export type ChannelAuthIntent = "signUp" | "signIn" | "upsert";
 export interface ChannelAuthInput {
   /** 通道类型，如 "email" / "phone" / "wechat" */
   provider: string;
-  /** 通道标识符（邮箱地址、手机号、openid 等） */
-  providerOpenid: string;
+  /** 通道标识符（邮箱地址、手机号、openid 等；8.0.0 由 providerOpenid 更名） */
+  identifier: string;
   /**
-   * 认证意图（6.0.0，默认 "upsert"）。
+   * 认证意图（8.0.0 起必填，无默认）。
    *
    * - "signUp"：注册——渠道已存在抛 UserExistsError（注册冲突即错误，不静默降级为登录）；
    * - "signIn"：登录——渠道不存在抛 InvalidPasswordError（统一消息防枚举），
    *   且仅接受密码凭证；
    * - "upsert"：不存在则注册 + 绑定，已存在则直接登录（OAuth 回调 /
-   *   管理侧建号等「不存在则创建」场景）。
+   *   管理侧建号等「不存在则创建」场景，需显式声明。
    */
-  intent?: ChannelAuthIntent;
+  intent: ChannelAuthIntent;
   /** 凭证 */
   credential: {
     /** 凭证类型："password" | "oauthCode" | "smsCode" 等 */
@@ -183,9 +183,9 @@ export interface ChannelAuthInput {
     refreshToken?: string;
     tokenExpiresAt?: Date | number;
     profileData?: Record<string, unknown>;
-    valid?: number;
-    allowPasswordUpdate?: number;
-    allowVerification?: number;
+    valid?: boolean;
+    allowPasswordUpdate?: boolean;
+    allowVerification?: boolean;
   };
 }
 
@@ -197,10 +197,10 @@ export interface ChannelAuthResult {
   channel: {
     id: string;
     provider: string;
-    providerOpenid: string;
-    valid: number;
-    allowPasswordUpdate: number;
-    allowVerification: number;
+    identifier: string;
+    valid: boolean;
+    allowPasswordUpdate: boolean;
+    allowVerification: boolean;
   };
 }
 
@@ -414,7 +414,7 @@ export class OmniAuth {
    */
   private async _createUserWithChannel(
     provider: string,
-    providerOpenid: string,
+    identifier: string,
     passwordHash: string | null,
     name: string,
     channelData?: ChannelAuthInput["channelData"],
@@ -438,7 +438,7 @@ export class OmniAuth {
     // 渠道记录（同事务写入，失败即整体回滚；扩展字段 4.1.0 起一并原子写入）
     await createSocialService(tx ?? this.config.database).bindToUser(userId, {
       provider,
-      providerOpenid,
+      identifier,
       accessToken: channelData?.accessToken,
       refreshToken: channelData?.refreshToken,
       tokenExpiresAt: channelData?.tokenExpiresAt,
@@ -504,7 +504,7 @@ export class OmniAuth {
     input: ChannelAuthInput,
     requestContext?: RequestContext
   ): Promise<ChannelAuthResult> {
-    const intent = input.intent ?? "upsert";
+    const intent = input.intent;
     const ip = this._getClientIp(requestContext);
 
     // 0. 契约校验：非密码凭证必须由调用方预先验证（库不代为验证 smsCode / oauthCode 等）
@@ -524,7 +524,7 @@ export class OmniAuth {
     if (intent === "signIn") {
       await checkRateLimit(
         this._rateLimiter,
-        `signIn:${ip}:${input.provider}:${input.providerOpenid}`,
+        `signIn:${ip}:${input.provider}:${input.identifier}`,
         this._signInLimit.maxAttempts,
         this._signInLimit.windowMs
       );
@@ -533,7 +533,7 @@ export class OmniAuth {
     // 1. 检查渠道是否已存在
     const existingChannel = await this._socialService.findByProvider(
       input.provider,
-      input.providerOpenid
+      input.identifier
     );
 
     if (existingChannel) {
@@ -548,7 +548,7 @@ export class OmniAuth {
 
       if (input.credential.type === "password") {
         // 密码凭证：渠道反查用户 → 验证共享密码（限流键 ip:provider:providerOpenid）
-        const limitKey = `signIn:${ip}:${input.provider}:${input.providerOpenid}`;
+        const limitKey = `signIn:${ip}:${input.provider}:${input.identifier}`;
         // signIn 意图已在反查前限流；upsert 仅在登录分支限流（现状行为）
         if (intent !== "signIn") {
           await checkRateLimit(
@@ -568,7 +568,7 @@ export class OmniAuth {
           await this._publishAudit({
             action: "signInFailed",
             ip,
-            metadata: { provider: input.provider, providerOpenid: input.providerOpenid },
+            metadata: { provider: input.provider, providerOpenid: input.identifier },
           });
           throw new InvalidPasswordError("凭证或密码错误");
         }
@@ -578,7 +578,7 @@ export class OmniAuth {
           await this._publishAudit({
             action: "signInFailed",
             ip,
-            metadata: { provider: input.provider, providerOpenid: input.providerOpenid },
+            metadata: { provider: input.provider, providerOpenid: input.identifier },
           });
           throw new InvalidPasswordError("凭证或密码错误");
         }
@@ -602,7 +602,7 @@ export class OmniAuth {
         channel: {
           id: existingChannel.id,
           provider: existingChannel.provider,
-          providerOpenid: existingChannel.providerOpenid,
+          identifier: existingChannel.identifier,
           valid: existingChannel.valid,
           allowPasswordUpdate: existingChannel.allowPasswordUpdate,
           allowVerification: existingChannel.allowVerification,
@@ -615,7 +615,7 @@ export class OmniAuth {
       await this._publishAudit({
         action: "signInFailed",
         ip,
-        metadata: { provider: input.provider, providerOpenid: input.providerOpenid },
+        metadata: { provider: input.provider, providerOpenid: input.identifier },
       });
       throw new InvalidPasswordError("凭证或密码错误");
     }
@@ -636,14 +636,14 @@ export class OmniAuth {
       throw new WeakPasswordError(`密码长度不能少于 ${this._passwordMinLength} 位`);
     }
     const passwordHash = password !== null ? await hashPassword(password) : null;
-    const name = input.profile?.name ?? input.providerOpenid;
+    const name = input.profile?.name ?? input.identifier;
 
     let userId: string;
     try {
       userId = await this._withTransaction((tx) =>
         this._createUserWithChannel(
           input.provider,
-          input.providerOpenid,
+          input.identifier,
           passwordHash,
           name,
           {
@@ -651,9 +651,9 @@ export class OmniAuth {
             refreshToken: input.channelData?.refreshToken,
             tokenExpiresAt: input.channelData?.tokenExpiresAt,
             profileData: input.channelData?.profileData,
-            valid: input.channelData?.valid ?? 1,
-            allowPasswordUpdate: input.channelData?.allowPasswordUpdate ?? 0,
-            allowVerification: input.channelData?.allowVerification ?? 0,
+            valid: input.channelData?.valid ?? true,
+            allowPasswordUpdate: input.channelData?.allowPasswordUpdate ?? false,
+            allowVerification: input.channelData?.allowVerification ?? false,
           },
           tx
         )
@@ -664,7 +664,7 @@ export class OmniAuth {
       if (isUniqueViolation(err)) {
         throw intent === "signUp"
           ? new UserExistsError("该渠道已被注册")
-          : new SocialAccountConflictError(input.provider, input.providerOpenid);
+          : new SocialAccountConflictError(input.provider, input.identifier);
       }
       throw err;
     }
@@ -676,12 +676,12 @@ export class OmniAuth {
     const updatedRecord = await this.db.socialAccount.findOne({
       where: [
         { field: "provider", value: input.provider },
-        { field: "providerOpenid", value: input.providerOpenid },
+        { field: "providerOpenid", value: input.identifier },
       ],
     });
 
     if (!updatedRecord) {
-      throw new SocialAccountConflictError(input.provider, input.providerOpenid);
+      throw new SocialAccountConflictError(input.provider, input.identifier);
     }
 
     await this._publishAudit({ action: "signUp", userId });
@@ -693,10 +693,10 @@ export class OmniAuth {
       channel: {
         id: updatedRecord.id,
         provider: input.provider,
-        providerOpenid: input.providerOpenid,
-        valid: updatedRecord.valid ?? 1,
-        allowPasswordUpdate: updatedRecord.allowPasswordUpdate ?? 0,
-        allowVerification: updatedRecord.allowVerification ?? 0,
+        identifier: input.identifier,
+        valid: normalizeUserFlag(updatedRecord.valid, true),
+        allowPasswordUpdate: normalizeUserFlag(updatedRecord.allowPasswordUpdate, false),
+        allowVerification: normalizeUserFlag(updatedRecord.allowVerification, false),
       },
     };
   }

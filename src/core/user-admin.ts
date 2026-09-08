@@ -150,10 +150,10 @@ export function createUserAdmin(
         if (email) {
           await createSocialService(tx).bindToUser(userId, {
             provider: "email",
-            providerOpenid: email,
-            valid: 1,
-            allowPasswordUpdate: 1,
-            allowVerification: 1,
+            identifier: email,
+            valid: true,
+            allowPasswordUpdate: true,
+            allowVerification: true,
           });
         }
       });
@@ -189,10 +189,10 @@ export function createUserAdmin(
         } else {
           await social.bindToUser(userId, {
             provider: "email",
-            providerOpenid: normalizedEmail,
-            valid: 1,
-            allowPasswordUpdate: 1,
-            allowVerification: 1,
+            identifier: normalizedEmail,
+            valid: true,
+            allowPasswordUpdate: true,
+            allowVerification: true,
           });
         }
       }
@@ -372,7 +372,7 @@ export function createUserAdmin(
     async getUserEmail(userId) {
       const channels = await social.listByUser(userId);
       const emailChannel = channels.find((c) => c.provider === "email");
-      return emailChannel?.providerOpenid ?? null;
+      return emailChannel?.identifier ?? null;
     },
 
     async findUserByEmail(email) {
