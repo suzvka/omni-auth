@@ -1,4 +1,67 @@
 # Changelog
+## 9.0.0
+> **接口复杂度专项收敛（评估驱动）**：credential 判别联合 + channelData 单一事实源 +
+> 弃用签名/死代码清仓 + 错误族补齐 + OAuth Server 公开面收窄。核心认证模型与 DB 不变。
+> 破坏性变更（major）。
+>
+> 定位说明：本包以 npm `^x` 版本被消费，caret 天然挡住存量用户自动升级；升级即
+> 主动选择破坏面并按本指南迁移。
+>
+> ### 破坏性变更
+>
+> - **credential 判别联合**：`ChannelAuthInput.credential` 由
+>   `{ type: string; value: string; verified?: boolean }` 改为 `ChannelAuthCredential` 判别联合——
+>   非密码凭证（smsCode/oauthCode 等）**编译期**即要求 `verified: true`
+>   （原为运行时守卫；运行时守卫对 JS 调用方保留）。合法形态不变：
+>   `{ type: "password", value }` 或 `{ type: "…", value, verified: true }`。
+> - **`handleOAuthCallback` 移除位置参数签名**：第 4 参只接受对象形式 `OAuthCallbackOptions`
+>   （必填）；`(provider, code, redirectUri, state?, codeVerifier?)` 旧签名删除
+>   （该签名不校验 state，属安全劣化路径）。
+> - **`OAuthServerService` 收窄**：`clearClientCache` / `getOAuthClientByRecordId` /
+>   `validateRedirectUri` / `validateClientSecret` 移出公开接口（转闭包自持或删除；
+>   缓存失效由 update/revoke/renewOAuthClient 自动完成）。`getClientById` 保留。
+> - **`TokenAuthorityClient.revokeCertificate` 参数改判别联合**：
+>   `{ certificate: string; productId: string } | { userId: string; productId: string }`
+>   （productId 必填；库内两种模式均有使用）。宿主实现若以宽类型接参则兼容。
+> - **root 不再导出 `RateLimitConfig`**（随死代码 `createRateLimitPresets` 删除）；
+>   `config.rateLimit` 的实际类型 `OmniAuthRateLimitConfig` 不变。
+> - **错误族补齐**：`users.createUser` 邮箱冲突由裸 `Error` 改 `UserExistsError`
+>   （消息不变）；`users.updateUser` 邮箱冲突改 `SocialAccountConflictError`
+>   （消息变为“社交账户 email:… 已被其他用户绑定”）；密码重置的“验证码错误或已过期”
+>   改 `CredentialInvalidError`、“未找到对应的用户账户”改 `OmniAuthError(USER_NOT_FOUND)`
+>   （消息均不变）。按 instanceof/code 分支的错误处理需复检这三条路径。
+> - **返回类型化**：`users.createUser` 返回 `user: unknown` → `user: { id: string; name: string }`；
+>   `UserView.channels: unknown[]` → `SocialAccountDTO[]`。
+>
+> ### 非破坏性改进
+>
+> - **`ChannelBindingData` 共享类型**：`bindToUser` 输入与 `ChannelAuthInput.channelData`
+>   单一事实源；能力位默认值收敛进 `bindToUser`（`valid` 缺省 **true**，
+>   `allowPasswordUpdate` / `allowVerification` 缺省 false）。直接调 `bindToUser`
+>   且未传 `valid` 的行为由“存 0”变为“存 1”（与 authenticateChannel 注册路径对齐）。
+> - `OAuthCallbackResult.channel` 补齐 `allowVerification`（与 `ChannelAuthResult.channel` 同形状）。
+> - **`baseUrl` 改为可选**：8.0.0 起 CSRF 同源校验由宿主自持，包内无运行时消费方；
+>   `secret` 注释如实化（同为预留字段）。
+> - `db.session` 表视图降为私有视图（访问告警 + `@deprecated`，对齐 oauthToken/oauthClient）。
+> - 死代码清理：`core/origin.ts`（CSRF 校验，8.0.0 起宿主自持）及其测试、
+>   `createRateLimitPresets`、registry 弃用兼容层残部。
+> - 公开方法参数名 `providerOpenid` → `identifier`（纯文档级，8.0.0 更名的收尾；
+>   审计 `metadata.providerOpenid` 键与 DB 列名保持不变）。
+>
+> ### 迁移指南
+>
+> ```ts
+> // before (8.x)
+> auth.handleOAuthCallback(provider, code, redirectUri, state);            // 位置参数，不校验 state
+> auth.authenticateChannel({ …, credential: { type: "smsCode", value } });  // 缺 verified 运行时才拦
+> const { user } = await auth.users.createUser(params);                    // user: unknown
+>
+> // after (9.0.0)
+> auth.handleOAuthCallback(provider, code, redirectUri, { state, expectedState, codeVerifier });
+> auth.authenticateChannel({ …, credential: { type: "smsCode", value, verified: true } }); // 编译期强制
+> const { user } = await auth.users.createUser(params);                    // { id, name }
+> ```
+
 ## 8.0.0
 > **Consumer-facing DX 收敛：`identifier` 更名 + `intent` 必填 + 能力位 boolean +
 > root 公开面极简（子入口拆分）+ 存量 `@deprecated` 全清**。内部统一认证模型不变，

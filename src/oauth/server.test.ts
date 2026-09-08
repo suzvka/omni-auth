@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createOAuthServer, OAuthError, verifyPKCE, generateCodeChallenge } from "./server";
-import type { OAuthClientRow } from "./server";
 import type { DatabaseAdapter } from "../adapters/database";
 import type { TokenAuthorityClient } from "./server";
 
@@ -120,28 +119,6 @@ describe("createOAuthServer — Client 校验与缓存", () => {
     await server.getClientById("client-b");
 
     expect(db.findOne).toHaveBeenCalledTimes(2);
-  });
-
-  it("validateRedirectUri：精确匹配与 localhost 端口容忍", () => {
-    const server = createOAuthServer(createMockAdapter(), createMockTokenAuthority());
-    const client = server.getClientById as never; // 仅用类型占位
-
-    const c = clientRow() as unknown as OAuthClientRow;
-
-    expect(server.validateRedirectUri(c, "https://app.example.com/callback")).toBe(true);
-    // localhost 端口不同仍视为同一回调（开发场景）
-    expect(server.validateRedirectUri(c, "http://localhost:5173/callback")).toBe(true);
-    expect(server.validateRedirectUri(c, "https://evil.example.com/callback")).toBe(false);
-  });
-
-  it("validateClientSecret：公开客户端（非机密）无需 secret", () => {
-    const server = createOAuthServer(createMockAdapter(), createMockTokenAuthority());
-    const pub = clientRow({ is_confidential: false }) as unknown as OAuthClientRow;
-    const conf = clientRow() as unknown as OAuthClientRow;
-
-    expect(server.validateClientSecret(pub, "")).toBe(true);
-    expect(server.validateClientSecret(conf, "cert-123")).toBe(true);
-    expect(server.validateClientSecret(conf, "wrong")).toBe(false);
   });
 });
 

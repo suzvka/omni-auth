@@ -81,11 +81,17 @@ export interface TokenAuthorityClient {
     certificate: string;
     ttl?: number;
   }): Promise<{ success: boolean; token: string; expiresAt: string }>;
-  revokeCertificate(params: {
-    certificate?: string;
-    userId?: string;
-    productId: string;
-  }): Promise<{ success: boolean }>;
+  /**
+   * 吊销证书（两种互斥模式，productId 必填；库内两种模式均有使用）。
+   *
+   * - 按证书值：{ certificate, productId }
+   * - 按归属槽位：{ userId, productId }
+   */
+  revokeCertificate(
+    params:
+      | { certificate: string; productId: string }
+      | { userId: string; productId: string }
+  ): Promise<{ success: boolean }>;
   getDefaultProductId(): string;
 }
 
@@ -218,12 +224,8 @@ export interface OAuthClientListParams {
 }
 
 export interface OAuthServerService {
-  // ---- Client 校验与缓存 ----
+  // ---- Client 查询（client_id → 客户端；含进程内缓存） ----
   getClientById(clientId: string): Promise<OAuthClientRow | null>;
-  getOAuthClientByRecordId(id: string): Promise<OAuthClientRow | null>;
-  clearClientCache(clientId?: string): void;
-  validateRedirectUri(client: OAuthClientRow, redirectUri: string): boolean;
-  validateClientSecret(client: OAuthClientRow, secret: string): boolean;
 
   // ---- 管理面 ----
   createOAuthClient(params: {
@@ -366,8 +368,27 @@ export function createOAuthServer(
     return rest;
   }
 
+  /** 按记录主键 id 查 client（不走缓存；管理面内部使用） */
+  async function getOAuthClientByRecordId(id: string): Promise<OAuthClientRow | null> {
+    const row = await db.findOne({
+      model: "oauthClient",
+      where: [{ field: "id", value: id }],
+    });
+    return row ? rowToClient(row as Record<string, unknown>) : null;
+  }
+
+  /** 失效 client 缓存（更新/吊销/续期后调用；不带参全量失效） */
+  function clearClientCache(clientId?: string): void {
+    const cache = getCache();
+    if (clientId) {
+      cache.delete(clientId);
+    } else {
+      cache.clear();
+    }
+  }
+
   return {
-    // ---- Client 校验与缓存 ----
+    // ---- Client 查询 ----
 
     async getClientById(clientId) {
       const cache = getCache();
@@ -382,42 +403,6 @@ export function createOAuthServer(
       const client = rowToClient(row as Record<string, unknown>);
       cache.set(clientId, client);
       return client;
-    },
-
-    async getOAuthClientByRecordId(id) {
-      const row = await db.findOne({
-        model: "oauthClient",
-        where: [{ field: "id", value: id }],
-      });
-      return row ? rowToClient(row as Record<string, unknown>) : null;
-    },
-
-    clearClientCache(clientId) {
-      const cache = getCache();
-      if (clientId) {
-        cache.delete(clientId);
-      } else {
-        cache.clear();
-      }
-    },
-
-    validateRedirectUri(client, redirectUri) {
-      const uris = parseJsonArray(client.redirect_uris);
-      return uris.some((uri) => {
-        if (uri === redirectUri) return true;
-        // 允许端口号不同（localhost 开发场景）
-        if (uri.startsWith("http://localhost:") && redirectUri.startsWith("http://localhost:")) {
-          const uriPath = uri.split("/", 4)[3] ?? "";
-          const redirectPath = redirectUri.split("/", 4)[3] ?? "";
-          return uriPath === redirectPath;
-        }
-        return false;
-      });
-    },
-
-    validateClientSecret(client, secret) {
-      if (!client.is_confidential) return true; // 公开客户端不需要 secret
-      return client.client_secret === secret;
     },
 
     // ---- 管理面 ----
@@ -519,11 +504,11 @@ export function createOAuthServer(
       });
 
       // 更新后失效缓存（client_id 可能未变，稳妥起见全量失效）
-      this.clearClientCache();
+      clearClientCache();
     },
 
     async revokeOAuthClient(id) {
-      const client = await this.getOAuthClientByRecordId(id);
+      const client = await getOAuthClientByRecordId(id);
       if (!client) {
         throw new OAuthError("invalid_client", "凭证不存在", 404);
       }
@@ -543,11 +528,11 @@ export function createOAuthServer(
         update: { status: "revoked", revoked_at: new Date() },
       });
 
-      this.clearClientCache(client.client_id);
+      clearClientCache(client.client_id);
     },
 
     async renewOAuthClient(id, expiresInDays) {
-      const client = await this.getOAuthClientByRecordId(id);
+      const client = await getOAuthClientByRecordId(id);
       if (!client) {
         throw new OAuthError("invalid_client", "凭证不存在", 404);
       }
@@ -573,7 +558,7 @@ export function createOAuthServer(
         },
       });
 
-      this.clearClientCache(client.client_id);
+      clearClientCache(client.client_id);
       return { expiresAt: refreshResult.expiresAt };
     },
 

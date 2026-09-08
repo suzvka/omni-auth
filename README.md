@@ -42,7 +42,6 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 export const auth = createQuickAuth({
   database: { pool },
-  baseUrl: process.env.BETTER_AUTH_URL!,
   autoSync: true, // 仅开发期：幂等建表/迁移，异步执行。生产见下方部署提示
 });
 ```
@@ -154,7 +153,7 @@ await auth.oauthServer.createOAuthClient({ clientName: "my-app" });
 await auth.scim.list({ pagination: { startIndex: 1, count: 20 }, filter: null });
 ```
 
-> 框架无关的底座入口是 `createAuth({ database, baseUrl })`；`createQuickAuth` 是它叠加 Next.js 一站式能力的封装。
+> 框架无关的底座入口是 `createAuth({ database })`；`createQuickAuth` 是它叠加 Next.js 一站式能力的封装。
 
 > **公开面分层（8.0.0）**：root `omni-auth` 只保留 happy-path 装配（`createAuth` / 错误族 / 核心类型）；高级能力走明确子入口 —— `omni-auth/nextjs`、`omni-auth/schema`（`syncSchema` + DSL）、`omni-auth/oauth`（provider 工厂）、`omni-auth/oauth-server`、`omni-auth/scim`、`omni-auth/request`、`omni-auth/adapters/pg`、`omni-auth/codegen-*`。
 

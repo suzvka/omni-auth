@@ -116,7 +116,10 @@ describe("createOAuthHandler — 基础", () => {
 
     it("未注册的 provider 应抛出错误", async () => {
         await expect(
-            ctx.handler("unknown_provider", "some_code", "http://localhost/callback")
+            ctx.handler("unknown_provider", "some_code", "http://localhost/callback", {
+                state: "s",
+                expectedState: "s",
+            })
         ).rejects.toThrow("未注册的 OAuth 平台");
     });
 });
@@ -182,6 +185,7 @@ describe("createOAuthHandler — state 强制校验", () => {
             id: "sa_ok",
             valid: true,
             allowPasswordUpdate: false,
+            allowVerification: false,
         });
 
         const result = await ctx.handler(
@@ -224,6 +228,7 @@ describe("createOAuthHandler — 已有绑定用户", () => {
             id: "sa_1",
             valid: true,
             allowPasswordUpdate: false,
+            allowVerification: false,
         });
 
         const result = await ctx.handler(
@@ -242,6 +247,7 @@ describe("createOAuthHandler — 已有绑定用户", () => {
             identifier: "oid_existing",
             valid: true,
             allowPasswordUpdate: false,
+            allowVerification: false,
         });
 
         // 审计事件发布
@@ -291,6 +297,7 @@ describe("createOAuthHandler — 新用户注册", () => {
             id: "sa_new",
             valid: true,
             allowPasswordUpdate: false,
+            allowVerification: false,
         });
 
         const result = await ctx.handler(
@@ -310,6 +317,7 @@ describe("createOAuthHandler — 新用户注册", () => {
             identifier: "g_new_user",
             valid: true,
             allowPasswordUpdate: false,
+            allowVerification: false,
         });
 
         // 5.0.0 渠道化：OAuth 新用户无密码（password=null，不生成随机密码）
@@ -492,8 +500,9 @@ describe("createOAuthHandler — PKCE / state", () => {
         ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "pkce_user",
             id: "sa_pkce",
-            valid: 1,
-            allowPasswordUpdate: 0,
+            valid: true,
+            allowPasswordUpdate: false,
+            allowVerification: false,
         });
 
         const result = await ctx.handler(
@@ -541,8 +550,9 @@ describe("createOAuthHandler — PKCE / state", () => {
         ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "u_no_pkce",
             id: "sa_np",
-            valid: 1,
-            allowPasswordUpdate: 0,
+            valid: true,
+            allowPasswordUpdate: false,
+            allowVerification: false,
         });
 
         await ctx.handler("google", "code", "http://localhost/callback", okState());
@@ -565,8 +575,9 @@ describe("createOAuthHandler — PKCE / state", () => {
         ctx.mockSocialService.findByProvider.mockResolvedValue({
             userId: "u_wx",
             id: "sa_wx",
-            valid: 1,
-            allowPasswordUpdate: 0,
+            valid: true,
+            allowPasswordUpdate: false,
+            allowVerification: false,
         });
 
         await ctx.handler(

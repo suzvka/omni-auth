@@ -21,6 +21,7 @@ import type { PublicUser } from "./types";
 import type { LifecycleHooks } from "./core/lifecycle";
 import { createSocialService } from "./social/service";
 import type { TokenRefresher, SocialAccountRef } from "./social/token";
+import type { ChannelBindingData } from "./social/types";
 import type { OAuthProviderConfig } from "./oauth/types";
 import { createOAuthHandler, type OAuthHandler, type OAuthCallbackOptions } from "./oauth/handler";
 import type { OAuthCallbackResult } from "./oauth/types";
@@ -79,7 +80,7 @@ export interface OmniAuthRateLimitConfig {
   /**
    * 验证码验证尝试限流（4.1.0，默认关闭，opt-in）。
    *
-   * 配置后 verifyChannelCode 按 `provider:providerOpenid` 限流，
+   * 配置后 verifyChannelCode 按 `provider:identifier` 限流，
    * 防短验证码爆破；验证成功时重置计数。
    * 建议：{ maxAttempts: 5, windowMs: 10 * 60 * 1000 }
    */
@@ -104,10 +105,19 @@ export interface OmniAuthConfig {
    * （委托外部证书服务，如集群的 yunzone_auth）。
    */
   tokenAuthority?: TokenAuthorityClient;
-  /** 密钥（可选）。 */
+  /**
+   * 密钥（可选）。
+   * 当前版本库内无运行时消费方，为后续会话/令牌签名能力预留。
+   */
   secret?: string;
-  /** 应用基础 URL（CSRF 同源校验等使用） */
-  baseUrl: string;
+  /**
+   * 应用基础 URL（可选，预留字段）。
+   *
+   * 8.0.0 起 CSRF 同源校验由宿主自持（isSameOrigin 移出公开面），
+   * 本字段当前在库内无运行时消费方；保留作为应用基础 URL 的声明位，
+   * 供未来会话/签名类能力接入。宿主自建 CSRF 校验无需依赖此值。
+   */
+  baseUrl?: string;
   /** 生命周期钩子 */
   hooks?: LifecycleHooks;
   /** 审计事件处理器（实例级） */
@@ -142,6 +152,17 @@ export interface OmniAuthConfig {
 /** 认证意图：注册（冲突即错误）/ 登录（不存在即失败）/ upsert（不存在则创建） */
 export type ChannelAuthIntent = "signUp" | "signIn" | "upsert";
 
+/**
+ * 渠道认证凭证（判别联合，9.0.0）。
+ *
+ * - 密码凭证：由库内校验（hash 比对），无需 verified；
+ * - 非密码凭证（smsCode / oauthCode 等）：编译期即要求 `verified: true`
+ *   （库不代为验证；运行时对 JS 调用方保留同义守卫）。
+ */
+export type ChannelAuthCredential =
+  | { type: "password"; value: string; verified?: undefined }
+  | { type: string; value: string; verified: true };
+
 export interface ChannelAuthInput {
   /** 通道类型，如 "email" / "phone" / "wechat" */
   provider: string;
@@ -157,36 +178,16 @@ export interface ChannelAuthInput {
    *   管理侧建号等「不存在则创建」场景，需显式声明。
    */
   intent: ChannelAuthIntent;
-  /** 凭证 */
-  credential: {
-    /** 凭证类型："password" | "oauthCode" | "smsCode" 等 */
-    type: string;
-    /** 凭证值 */
-    value: string;
-    /**
-     * 非密码凭证契约：调用方必须已完成验证并显式声明 verified=true。
-     *
-     * type !== "password" 且 verified !== true 时抛 CredentialInvalidError。
-     * 库不代为验证 smsCode / oauthCode 等凭证，验证责任在调用方。
-     */
-    verified?: boolean;
-  };
+  /** 凭证（密码凭证由库校验；非密码凭证须以 verified: true 声明调用方已完成验证） */
+  credential: ChannelAuthCredential;
   /** 用户资料（新用户注册时使用） */
   profile?: {
     name?: string;
     image?: string;
     [key: string]: unknown;
   };
-  /** 绑定到通道的额外数据 */
-  channelData?: {
-    accessToken?: string;
-    refreshToken?: string;
-    tokenExpiresAt?: Date | number;
-    profileData?: Record<string, unknown>;
-    valid?: boolean;
-    allowPasswordUpdate?: boolean;
-    allowVerification?: boolean;
-  };
+  /** 绑定到通道的额外数据（能力位默认值语义见 ChannelBindingData / bindToUser） */
+  channelData?: ChannelBindingData;
 }
 
 export interface ChannelAuthResult {
@@ -417,7 +418,7 @@ export class OmniAuth {
     identifier: string,
     passwordHash: string | null,
     name: string,
-    channelData?: ChannelAuthInput["channelData"],
+    channelData?: ChannelBindingData,
     tx?: DatabaseAdapter
   ): Promise<string> {
     const dbf = createDbFacade(tx ?? this.config.database);
@@ -435,17 +436,11 @@ export class OmniAuth {
       },
     });
 
-    // 渠道记录（同事务写入，失败即整体回滚；扩展字段 4.1.0 起一并原子写入）
+    // 渠道记录（同事务写入，失败即整体回滚；能力位默认值由 bindToUser 统一收敛）
     await createSocialService(tx ?? this.config.database).bindToUser(userId, {
       provider,
       identifier,
-      accessToken: channelData?.accessToken,
-      refreshToken: channelData?.refreshToken,
-      tokenExpiresAt: channelData?.tokenExpiresAt,
-      profileData: channelData?.profileData,
-      valid: channelData?.valid,
-      allowPasswordUpdate: channelData?.allowPasswordUpdate,
-      allowVerification: channelData?.allowVerification,
+      ...channelData,
     });
 
     return userId;
@@ -489,7 +484,7 @@ export class OmniAuth {
   /**
    * 统一通道认证入口（全渠道唯一认证入口）。
    *
-   * 意图语义（intent，默认 "upsert"）：
+   * 意图语义（intent，8.0.0 起必填，无默认）：
    * - "signUp"：注册——渠道已存在抛 UserExistsError（注册冲突即错误，
    *   不静默降级为登录）；
    * - "signIn"：登录——渠道不存在抛 InvalidPasswordError（统一消息防枚举），
@@ -497,8 +492,9 @@ export class OmniAuth {
    * - "upsert"：不存在则新建用户 + 绑定；已存在则直接登录（OAuth 回调 /
    *   管理侧建号等场景）。
    *
-   * 非密码凭证契约：调用方必须已完成凭证验证并显式声明
-   * credential.verified = true，否则抛 CredentialInvalidError。
+   * 非密码凭证契约：credential 判别联合在编译期即要求非密码凭证携带
+   * verified: true；运行时守卫保留（针对 JS 调用方），违约抛
+   * CredentialInvalidError。
    */
   async authenticateChannel(
     input: ChannelAuthInput,
@@ -519,7 +515,7 @@ export class OmniAuth {
       throw new CredentialInvalidError("intent: signIn 仅接受密码凭证");
     }
 
-    // signIn 意图在反查前限流（键 ip:provider:providerOpenid），
+    // signIn 意图在反查前限流（键 ip:provider:identifier），
     // 已存在 / 不存在渠道的枚举试探付出同等代价
     if (intent === "signIn") {
       await checkRateLimit(
@@ -547,7 +543,7 @@ export class OmniAuth {
       let user: PublicUser;
 
       if (input.credential.type === "password") {
-        // 密码凭证：渠道反查用户 → 验证共享密码（限流键 ip:provider:providerOpenid）
+        // 密码凭证：渠道反查用户 → 验证共享密码（限流键 ip:provider:identifier）
         const limitKey = `signIn:${ip}:${input.provider}:${input.identifier}`;
         // signIn 意图已在反查前限流；upsert 仅在登录分支限流（现状行为）
         if (intent !== "signIn") {
@@ -646,15 +642,7 @@ export class OmniAuth {
           input.identifier,
           passwordHash,
           name,
-          {
-            accessToken: input.channelData?.accessToken,
-            refreshToken: input.channelData?.refreshToken,
-            tokenExpiresAt: input.channelData?.tokenExpiresAt,
-            profileData: input.channelData?.profileData,
-            valid: input.channelData?.valid ?? true,
-            allowPasswordUpdate: input.channelData?.allowPasswordUpdate ?? false,
-            allowVerification: input.channelData?.allowVerification ?? false,
-          },
+          input.channelData,
           tx
         )
       );
@@ -707,32 +695,33 @@ export class OmniAuth {
 
   async requestPasswordReset(
     provider: string,
-    providerOpenid: string,
+    identifier: string,
     requestContext?: RequestContext
   ): Promise<void> {
     // 速率限制：3 次/10 分钟
     const ip = this._getClientIp(requestContext);
     await checkRateLimit(
       this._rateLimiter,
-      `passwordReset:${ip}:${provider}:${providerOpenid}`,
+      `passwordReset:${ip}:${provider}:${identifier}`,
       this._passwordResetLimit.maxAttempts,
       this._passwordResetLimit.windowMs
     );
-    await this._passwordReset.requestReset(provider, providerOpenid);
+    await this._passwordReset.requestReset(provider, identifier);
     await this._publishAudit({
       action: "resetPasswordRequest",
       ip,
-      metadata: { provider, providerOpenid },
+      // metadata 键保留历史名 providerOpenid（审计消费方数据契约，未随 8.0.0 更名）
+      metadata: { provider, providerOpenid: identifier },
     });
   }
 
   async resetPassword(
     provider: string,
-    providerOpenid: string,
+    identifier: string,
     code: string,
     newPassword: string
   ): Promise<void> {
-    await this._passwordReset.reset(provider, providerOpenid, code, newPassword);
+    await this._passwordReset.reset(provider, identifier, code, newPassword);
     await this._publishAudit({ action: "resetPasswordDone" });
   }
 
@@ -775,9 +764,7 @@ export class OmniAuth {
   }
 
   /**
-   * 处理 OAuth 回调。
-   *
-   * 推荐使用对象形式参数（库内强制校验 state）：
+   * 处理 OAuth 回调（对象形式参数，库内强制校验 state）：
    * ```ts
    * auth.handleOAuthCallback(provider, code, redirectUri, {
    *   state: body.state,            // 回调携带
@@ -785,23 +772,14 @@ export class OmniAuth {
    *   codeVerifier,
    * });
    * ```
-   *
-   * @deprecated 位置参数签名 (state?, codeVerifier?) 仍可用但不校验 state。
    */
   async handleOAuthCallback(
     provider: string,
     code: string,
     redirectUri: string,
-    stateOrOptions?: string | OAuthCallbackOptions,
-    codeVerifier?: string
+    options: OAuthCallbackOptions
   ): Promise<OAuthCallbackResult> {
-    const result = await this._oauthHandler(
-      provider,
-      code,
-      redirectUri,
-      stateOrOptions,
-      codeVerifier
-    );
+    const result = await this._oauthHandler(provider, code, redirectUri, options);
 
     // ---- OAuth 新用户创建后触发 onUserCreated 钩子（事务已提交）
     if (result.isNewUser) {
@@ -823,10 +801,10 @@ export class OmniAuth {
    */
   async requestChannelCode(
     provider: string,
-    providerOpenid: string,
+    identifier: string,
     channelRef?: SocialAccountRef
   ): Promise<string> {
-    return this._channelVerification.requestCode(provider, providerOpenid, channelRef);
+    return this._channelVerification.requestCode(provider, identifier, channelRef);
   }
 
   /**
@@ -836,17 +814,17 @@ export class OmniAuth {
    * 库无条件透传验证结果。不要求登录态（注册/绑定场景可能未登录），
    * 调用者自行判断业务上下文。
    *
-   * 4.1.0：配置 rateLimit.verifyCode 后按 `provider:providerOpenid`
+   * 4.1.0：配置 rateLimit.verifyCode 后按 `provider:identifier`
    * 限制尝试次数（防短验证码爆破），验证成功时重置计数。
    */
   async verifyChannelCode(
     provider: string,
-    providerOpenid: string,
+    identifier: string,
     code: string,
     channelRef?: SocialAccountRef
   ): Promise<boolean> {
     // 可选尝试次数限流（opt-in；未配置时行为与旧版一致）
-    const limitKey = `verifyCode:${provider}:${providerOpenid}`;
+    const limitKey = `verifyCode:${provider}:${identifier}`;
     if (this._verifyCodeLimit) {
       await checkRateLimit(
         this._rateLimiter,
@@ -858,7 +836,7 @@ export class OmniAuth {
 
     const ok = await this._channelVerification.verifyCode(
       provider,
-      providerOpenid,
+      identifier,
       code,
       channelRef
     );

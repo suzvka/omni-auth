@@ -20,6 +20,7 @@ export type {
   OmniAuthVerificationPolicy,
   ChannelAuthIntent,
   ChannelAuthInput,
+  ChannelAuthCredential,
   ChannelAuthResult,
 } from "./auth";
 
@@ -45,6 +46,9 @@ export {
 // ----------------------------------------------------------
 
 export type { PublicUser } from "./types";
+
+// 渠道绑定数据（ChannelAuthInput.channelData / bindToUser 输入的共享形状）
+export type { ChannelBindingData } from "./social/types";
 
 // 适配器接口（自定义 DatabaseAdapter / 配置 database 所需）
 export type {
@@ -80,4 +84,4 @@ export type { LifecycleHooks, UserCreatedPayload } from "./core/lifecycle";
 export type { AuditEvent, AuditAction, AuditHandler } from "./core/audit";
 
 // 速率限制（config.rateLimit）
-export type { RateLimiter, RateLimitResult, RateLimitConfig } from "./core/rateLimit";
+export type { RateLimiter, RateLimitResult } from "./core/rateLimit";

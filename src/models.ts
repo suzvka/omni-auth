@@ -127,7 +127,11 @@ export interface DbFacade {
   // ---- 类型化表视图（推荐） ----
   user: ModelView<UserRow, UserInsert>;
   socialAccount: ModelView<SocialAccountRow, SocialAccountInsert>;
-  /** 会话表（认证域私有；宿主请使用 auth.sessions.* 语义 API） */
+  /**
+   * 会话表（认证域私有，已弃用）：宿主请使用 auth.sessions.* 语义 API，
+   * 直接访问会在运行时告警，并将在未来 major 版本移除。
+   * @deprecated 认证域私有视图：请使用 auth.sessions.* 语义 API
+   */
   session: ModelView<SessionRow, SessionInsert>;
   /**
    * OAuth 令牌表（认证域私有，已弃用）：宿主请使用 auth.oauth.* 语义 API，
@@ -275,7 +279,7 @@ export function createDbFacade(adapter: DatabaseAdapter): DbFacade {
   return {
     user: createModelView(adapter, "user"),
     socialAccount: createModelView(adapter, "socialAccount"),
-    session: createModelView(adapter, "session"),
+    session: createPrivateView(adapter, "session", "session"),
     oauthToken: createPrivateView(adapter, "oauthToken", "oauthToken"),
     oauthClient: createPrivateView(adapter, "oauthClient", "oauthClient"),
 

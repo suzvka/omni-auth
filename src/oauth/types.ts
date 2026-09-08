@@ -74,12 +74,13 @@ export interface OAuthCallbackResult {
     userId: string;
     /** 是否为新注册用户 */
     isNewUser: boolean;
-    /** 绑定的渠道信息 */
+    /** 绑定的渠道信息（与 ChannelAuthResult.channel 同形状，9.0.0 起补齐 allowVerification） */
     channel: {
         id: string;
         provider: string;
         identifier: string;
         valid: boolean;
         allowPasswordUpdate: boolean;
+        allowVerification: boolean;
     };
 }

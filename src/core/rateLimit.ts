@@ -87,40 +87,6 @@ export function createMemoryRateLimiter(): RateLimiter {
   };
 }
 
-// ----------------------------------------------------------
-// 预置限制策略
-// ----------------------------------------------------------
-
-export interface RateLimitPresets {
-  /** 登录接口限流器 */
-  signIn: RateLimiter | null;
-  /** 注册接口限流器 */
-  signUp: RateLimiter | null;
-  /** 密码重置限流器 */
-  passwordReset: RateLimiter | null;
-}
-
-export interface RateLimitConfig {
-  /** 速率限制器实例（不提供则禁用） */
-  limiter?: RateLimiter;
-  /** 登录：默认 5 次 / 15 分钟 */
-  signIn?: { maxAttempts: number; windowMs: number };
-  /** 注册：默认 3 次 / 1 小时 */
-  signUp?: { maxAttempts: number; windowMs: number };
-  /** 密码重置：默认 3 次 / 10 分钟 */
-  passwordReset?: { maxAttempts: number; windowMs: number };
-}
-
-export function createRateLimitPresets(config?: RateLimitConfig): RateLimitPresets {
-  const limiter = config?.limiter ?? null;
-
-  return {
-    signIn: limiter,
-    signUp: limiter,
-    passwordReset: limiter,
-  };
-}
-
 /**
  * 通用限流检查辅助函数。
  * @throws RateLimitedError 如果超过限制

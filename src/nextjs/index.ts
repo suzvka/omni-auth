@@ -1,13 +1,11 @@
 import { headers } from "next/headers";
-import type { OmniAuth } from "../auth";
+import type { OmniAuth, OmniAuthConfig } from "../auth";
 import type { RequestContext } from "../adapters/request";
 import { createRequestContext } from "../adapters/request";
 import { createAuth } from "../auth";
 import { PgAdapter } from "../builtin/pg/adapter";
 import type { PgPoolLike } from "../builtin/pg/adapter";
 import type { DatabaseAdapter } from "../adapters/database";
-import type { LifecycleHooks } from "../core/lifecycle";
-import type { TokenAuthorityClient } from "../oauth/server";
 import { syncSchema } from "../schema-sync";
 
 // ============================================================
@@ -80,7 +78,16 @@ export interface PoolDbConfig {
   pool: PgPoolLike;
 }
 
-export interface QuickAuthConfig {
+/**
+ * 共享配置字段（tokenAuthority / secret / baseUrl / hooks / audit / rateLimit /
+ * passwordPolicy / allowNonAtomicWrites / verificationPolicy）直接继承 OmniAuthConfig
+ * （单一事实源：根配置新增字段自动同步到快速装配入口）。
+ *
+ * 本接口只声明 Next.js 快速装配特有的 database 联合与部署期选项。
+ * 注意：注入式连接池（PgAdapter）自带事务能力，allowNonAtomicWrites
+ * 仅在传入未实现 transaction 的自定义适配器时才需要。
+ */
+export interface QuickAuthConfig extends Omit<OmniAuthConfig, "database"> {
   /**
    * 数据库适配器。
    *
@@ -110,37 +117,6 @@ export interface QuickAuthConfig {
    * （连 postgres 默认库检查/创建目标库）；缺省跳过 bootstrap。
    */
   databaseUrl?: string;
-  /**
-   * 令牌权威服务客户端（可选）。注入后 auth.oauthServer 的
-   * access token 签发/校验/吊销能力可用（委托外部证书服务）。
-   */
-  tokenAuthority?: TokenAuthorityClient;
-  /**
-   * 密钥（可选）。
-   *
-   * 当前版本库内无消费方，为后续会话/令牌签名能力预留。
-   */
-  secret?: string;
-  /** 应用基础 URL（CSRF 同源校验等使用） */
-  baseUrl: string;
-  /** 生命周期钩子 */
-  hooks?: LifecycleHooks;
-  /** 审计事件处理器（实例级） */
-  audit?: import("../core/audit").AuditHandler;
-  /** 速率限制配置 */
-  rateLimit?: import("../auth").OmniAuthRateLimitConfig;
-  /** 密码策略（4.1.0；不配置时默认最短 8 位） */
-  passwordPolicy?: import("../auth").OmniAuthPasswordPolicy;
-  /**
-   * 显式接受非原子多表写入（默认关闭，7.0.0）。
-   *
-   * 仅在注入自定义适配器且其未实现 transaction 时需要：
-   * 默认会在构造期抛 ADAPTER_TRANSACTION_UNSUPPORTED 阻断启动。
-   * 注入式连接池配置（PgAdapter）自带事务能力，无需此项。
-   */
-  allowNonAtomicWrites?: boolean;
-  /** 验证码渠道策略（7.1.0，opt-in；provider 级门禁，禁用渠道不可生成/校验验证码） */
-  verificationPolicy?: import("../auth").OmniAuthVerificationPolicy;
 }
 
 /**
@@ -199,16 +175,7 @@ export function createQuickAuth(config: QuickAuthConfig): OmniAuth {
     database = config.database;
   }
 
-  return createAuth({
-    database,
-    tokenAuthority: config.tokenAuthority,
-    secret: config.secret,
-    baseUrl: config.baseUrl,
-    hooks: config.hooks,
-    audit: config.audit,
-    rateLimit: config.rateLimit,
-    passwordPolicy: config.passwordPolicy,
-    allowNonAtomicWrites: config.allowNonAtomicWrites,
-    verificationPolicy: config.verificationPolicy,
-  });
+  // 共享配置经展开透传：OmniAuthConfig 新增字段无需在此登记；
+  // database 已解析为适配器实例，autoSync / databaseUrl 为部署期选项，运行时无消费
+  return createAuth({ ...config, database });
 }

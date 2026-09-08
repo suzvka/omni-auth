@@ -8,7 +8,7 @@
 
 import { randomUUID } from "crypto";
 import type { DatabaseAdapter } from "../adapters/database";
-import type { SocialAccountDTO } from "./types";
+import type { SocialAccountDTO, ChannelBindingData } from "./types";
 import type { TokenRefresher, SocialAccountRef } from "./token";
 import { SocialAccountConflictError } from "../errors";
 import { createDbFacade } from "../models";
@@ -129,19 +129,15 @@ export function createSocialService(
   const dbf = createDbFacade(db);
 
   return {
+    /**
+     * 绑定社交账户（provider+identifier 冲突即抛 SocialAccountConflictError）。
+     *
+     * 绑定能力位默认值在此统一收敛：valid 缺省 true，
+     * allowPasswordUpdate / allowVerification 缺省 false。
+     */
     async bindToUser(
       userId: string,
-      input: {
-        provider: string;
-        identifier: string;
-        accessToken?: string;
-        refreshToken?: string;
-        tokenExpiresAt?: Date | number;
-        profileData?: Record<string, unknown>;
-        valid?: boolean;
-        allowPasswordUpdate?: boolean;
-        allowVerification?: boolean;
-      }
+      input: { provider: string; identifier: string } & ChannelBindingData
     ): Promise<SocialAccountDTO> {
       const existing = await dbf.socialAccount.findOne({
         where: [
@@ -175,9 +171,9 @@ export function createSocialService(
                   : new Date(input.tokenExpiresAt)
                 : null,
             profileData: input.profileData ?? {},
-            valid: input.valid ? 1 : 0,
-            allowPasswordUpdate: input.allowPasswordUpdate ? 1 : 0,
-            allowVerification: input.allowVerification ? 1 : 0,
+            valid: (input.valid ?? true) ? 1 : 0,
+            allowPasswordUpdate: (input.allowPasswordUpdate ?? false) ? 1 : 0,
+            allowVerification: (input.allowVerification ?? false) ? 1 : 0,
             createdAt: new Date(),
             updatedAt: new Date(),
           },

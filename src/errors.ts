@@ -31,10 +31,10 @@ export class InvalidPasswordError extends OmniAuthError {
 }
 
 export class SocialAccountConflictError extends OmniAuthError {
-  constructor(provider: string, providerOpenid: string) {
+  constructor(provider: string, identifier: string) {
     super(
       "SOCIAL_ACCOUNT_CONFLICT",
-      `社交账户 ${provider}:${providerOpenid} 已被其他用户绑定`
+      `社交账户 ${provider}:${identifier} 已被其他用户绑定`
     );
     this.name = "SocialAccountConflictError";
   }

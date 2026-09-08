@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   createMemoryRateLimiter,
   checkRateLimit,
-  createRateLimitPresets,
 } from "./rateLimit";
 import type { RateLimiter } from "./rateLimit";
 
@@ -102,22 +101,5 @@ describe("checkRateLimit", () => {
     await expect(
       checkRateLimit(limiter, "key_overflow", 5, 60000)
     ).rejects.toThrow("操作过于频繁");
-  });
-});
-
-describe("createRateLimitPresets", () => {
-  it("未提供 limiter 时所有预设为 null", () => {
-    const presets = createRateLimitPresets();
-    expect(presets.signIn).toBeNull();
-    expect(presets.signUp).toBeNull();
-    expect(presets.passwordReset).toBeNull();
-  });
-
-  it("提供 limiter 时所有预设共享同一实例", () => {
-    const limiter = createMemoryRateLimiter();
-    const presets = createRateLimitPresets({ limiter });
-    expect(presets.signIn).toBe(limiter);
-    expect(presets.signUp).toBe(limiter);
-    expect(presets.passwordReset).toBe(limiter);
   });
 });

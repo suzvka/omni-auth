@@ -5,7 +5,7 @@ vi.mock("next/headers", () => ({
     headers: async () => new Headers(),
 }));
 
-import { createAuth, type OmniAuthConfig } from "./auth";
+import { createAuth, type ChannelAuthInput, type OmniAuthConfig } from "./auth";
 import type { DatabaseAdapter, WhereCondition } from "./adapters/database";
 import { verifyPassword } from "@better-auth/utils/password";
 import { createRequestContext } from "./adapters/request";
@@ -580,13 +580,15 @@ describe("authenticateChannel 非密码凭证契约", () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
+        // 9.0.0 起判别联合在编译期即拒绝缺 verified 的非密码凭证；
+        // 运行时守卫为 JS 调用方保留，此处以断言故意构造违约输入
         await expect(
             auth.authenticateChannel({
                 provider: "phone",
                 identifier: "13800000000",
                 intent: "upsert",
                 credential: { type: "smsCode", value: "123456" },
-            })
+            } as ChannelAuthInput)
         ).rejects.toThrow(CredentialInvalidError);
     });
 
@@ -869,9 +871,12 @@ describe("实例隔离（3.0.0）", () => {
             exchangeCode: async () => ({ openid: "oid_iso", accessToken: "at" }),
         });
 
-        // authB 未注册 wechat → 拒绝
+        // authB 未注册 wechat → 拒绝（provider 检查先于 state 校验，无需真实 state）
         await expect(
-            authB.handleOAuthCallback("wechat", "code", "http://localhost/cb")
+            authB.handleOAuthCallback("wechat", "code", "http://localhost/cb", {
+                state: "s",
+                expectedState: "s",
+            })
         ).rejects.toThrow("未注册的 OAuth 平台");
     });
 

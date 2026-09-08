@@ -3,10 +3,7 @@
 //
 // 3.0.0 起，OAuth provider / 验证码 sender/verifier / token
 // refresher / 审计处理器全部收编为 OmniAuth 实例成员，
-// 多实例互不干扰。
-//
-// 模块级全局注册函数（已弃用）通过 getActiveRegistry()
-// 转发到最近创建的实例注册表，仅作过渡兼容。
+// 多实例互不干扰。8.0.0 已移除模块级全局注册函数。
 // ============================================================
 
 import type { OAuthProviderConfig } from "./oauth/types";
@@ -28,41 +25,12 @@ export interface OmniRegistry {
   auditHandler: AuditHandler | null;
 }
 
-/** 最近创建的注册表（弃用全局函数的兼容转发目标） */
-let activeRegistry: OmniRegistry | null = null;
-
-/** 全局弃用警告（仅提示一次） */
-let deprecationWarned = false;
-
 export function createRegistry(): OmniRegistry {
-  const registry: OmniRegistry = {
+  return {
     oauthProviders: new Map(),
     senders: new Map(),
     verifiers: new Map(),
     tokenRefreshers: new Map(),
     auditHandler: null,
   };
-  activeRegistry = registry;
-  return registry;
-}
-
-/** 兼容层：获取最近创建的实例注册表（无实例时为 null） */
-export function getActiveRegistry(): OmniRegistry | null {
-  return activeRegistry;
-}
-
-/** 兼容层：弃用全局函数统一经由此入口访问活跃注册表 */
-export function requireActiveRegistry(caller: string): OmniRegistry {
-  if (!activeRegistry) {
-    throw new Error(
-      `${caller}: 尚未创建 OmniAuth 实例。请先调用 createAuth()，或改用实例方法。`
-    );
-  }
-  if (!deprecationWarned) {
-    deprecationWarned = true;
-    console.warn(
-      `[omni-auth] 模块级全局注册函数已弃用（调用方: ${caller}），请改用 OmniAuth 实例方法，将在下个 major 版本移除。`
-    );
-  }
-  return activeRegistry;
 }

@@ -15,7 +15,7 @@
 // verifyCode 保持无门禁。
 //
 // 3.0.0 起注册表收编为 OmniAuth 实例成员（OmniRegistry），
-// 模块级全局注册函数已弃用，仅转发到最近创建的实例。
+// 8.0.0 已移除模块级全局注册函数。
 // ============================================================
 
 import { randomInt } from "crypto";
@@ -30,7 +30,7 @@ export interface VerificationSender {
     /**
      * 向指定渠道投递验证码。
      *
-     * @param channel  渠道引用（含 providerOpenid / accessToken 等）
+     * @param channel  渠道引用（含 identifier / accessToken 等）
      * @param code     库生成的种子码
      */
     send(channel: SocialAccountRef, code: string): Promise<void>;
@@ -44,7 +44,7 @@ export interface VerificationVerifier {
      * 验证码的状态（存储、TTL、一次性消费、防重放）由实现方自行管理，
      * 库无条件透传验证结果。
      *
-     * @param channel  渠道引用（含 providerOpenid / accessToken 等）
+     * @param channel  渠道引用（含 identifier / accessToken 等）
      * @param code     用户提交的验证码
      * @returns 验证是否通过
      */
@@ -76,12 +76,12 @@ function assertProviderEnabled(
 /** 当调用方未提供完整渠道引用时，构造最小 SocialAccountRef 供实现方使用 */
 function buildMinimalRef(
     provider: string,
-    providerOpenid: string
+    identifier: string
 ): SocialAccountRef {
     return {
         id: "",
         provider,
-        identifier: providerOpenid,
+        identifier,
         accessToken: null,
         refreshToken: null,
         tokenExpiresAt: null,
@@ -103,18 +103,18 @@ function buildMinimalRef(
  *
  * @param registry       实例注册表
  * @param provider       渠道类型（email / phone / wechat 等）
- * @param providerOpenid 渠道标识符（邮箱地址、手机号、openid 等）
+ * @param identifier     渠道标识符（邮箱地址、手机号、openid 等）
  * @param channelRef     可选完整渠道引用；不提供则构造最小引用
  * @returns 生成的种子码
  */
 export async function requestCode(
     registry: VerificationRegistry,
     provider: string,
-    providerOpenid: string,
+    identifier: string,
     channelRef?: SocialAccountRef
 ): Promise<string> {
     const code = randomInt(100000, 1000000).toString();
-    const ref = channelRef ?? buildMinimalRef(provider, providerOpenid);
+    const ref = channelRef ?? buildMinimalRef(provider, identifier);
 
     const sender = registry.senders.get(provider);
     if (sender) {
@@ -133,7 +133,7 @@ export async function requestCode(
  *
  * @param registry       实例注册表
  * @param provider       渠道类型
- * @param providerOpenid 渠道标识符
+ * @param identifier     渠道标识符
  * @param code           用户提交的验证码
  * @param channelRef     可选完整渠道引用；不提供则构造最小引用
  * @returns 渠道返回的验证结果
@@ -141,7 +141,7 @@ export async function requestCode(
 export async function verifyCode(
     registry: VerificationRegistry,
     provider: string,
-    providerOpenid: string,
+    identifier: string,
     code: string,
     channelRef?: SocialAccountRef
 ): Promise<boolean> {
@@ -149,7 +149,7 @@ export async function verifyCode(
     if (!verifier) {
         throw new Error(`渠道 "${provider}" 未注册验证码验证器`);
     }
-    const ref = channelRef ?? buildMinimalRef(provider, providerOpenid);
+    const ref = channelRef ?? buildMinimalRef(provider, identifier);
     return verifier.verify(ref, code);
 }
 
@@ -169,22 +169,22 @@ export function createChannelVerification(
         /** 生成种子码并（可选）投递，返回种子码；禁用渠道以 rejected promise 抛 CHANNEL_VERIFICATION_DISABLED */
         async requestCode(
             provider: string,
-            providerOpenid: string,
+            identifier: string,
             channelRef?: SocialAccountRef
         ): Promise<string> {
             assertProviderEnabled(policy, provider);
-            return requestCode(registry, provider, providerOpenid, channelRef);
+            return requestCode(registry, provider, identifier, channelRef);
         },
 
         /** 委托渠道验证验证码；禁用渠道以 rejected promise 抛 CHANNEL_VERIFICATION_DISABLED */
         async verifyCode(
             provider: string,
-            providerOpenid: string,
+            identifier: string,
             code: string,
             channelRef?: SocialAccountRef
         ): Promise<boolean> {
             assertProviderEnabled(policy, provider);
-            return verifyCode(registry, provider, providerOpenid, code, channelRef);
+            return verifyCode(registry, provider, identifier, code, channelRef);
         },
     };
 }

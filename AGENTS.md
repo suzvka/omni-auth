@@ -28,7 +28,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
   注入 `pool`）；宿主（如 user_center）由 `yunzone-service-kit/db` 的 `PgSqlDb` 单例提供池
   （凭证经 `resolveDatabaseUrl` 渠道解析：DATABASE_PROVIDER=postgres/coze），
   认证域与业务域共享同一连接池。
-- **错误族边界**：认证域错误（`UniqueViolationError` 等 omni-auth 错误族）留在库契约内；
+- **错误族边界**：认证域错误（omni-auth 错误族；唯一约束以 code=UNIQUE_VIOLATION 的
+  OmniAuthError 信号透传，跨包判断统一用 `isUniqueViolation`，不用 instanceof）留在库契约内；
   业务域错误用 kit 错误族（`StorageError`/`UniqueViolationError`）。二者同源于 pg 错误码
   （23505），不做跨库映射。
 - **自动建表/迁移（包内单一实现，默认关闭）**：表结构由 `schema.ts` 单一管理；

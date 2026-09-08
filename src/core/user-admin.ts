@@ -12,8 +12,9 @@ import { randomUUID } from "crypto";
 import { hashPassword } from "@better-auth/utils/password";
 import type { DatabaseAdapter } from "../adapters/database";
 import { withTransaction } from "../adapters/database";
-import { WeakPasswordError } from "../errors";
+import { WeakPasswordError, UserExistsError, SocialAccountConflictError } from "../errors";
 import { createSocialService } from "../social/service";
+import type { SocialAccountDTO } from "../social/types";
 import { normalizeUserFlag, type SessionService } from "./session";
 
 export interface CreateUserParams {
@@ -35,7 +36,8 @@ export interface UserView {
   id: string;
   name: string;
   active: boolean;
-  channels: unknown[];
+  /** 用户全部渠道（SocialAccountDTO，含 token 字段；对外暴露时注意脱敏） */
+  channels: SocialAccountDTO[];
 }
 
 export interface UserListItem {
@@ -56,7 +58,11 @@ export interface ListUsersParams {
 }
 
 export interface UserAdminService {
-  createUser(params: CreateUserParams): Promise<{ userId: string; user: unknown }>;
+  createUser(params: CreateUserParams): Promise<{
+    userId: string;
+    /** 新建用户摘要（id + name；完整视图走 getUser） */
+    user: { id: string; name: string };
+  }>;
   updateUser(userId: string, params: UpdateUserParams): Promise<void>;
   /** 修改用户密码（哈希后写入，并吊销该用户全部会话；弱密码拒绝） */
   updatePassword(userId: string, newPassword: string): Promise<void>;
@@ -127,7 +133,7 @@ export function createUserAdmin(
       if (email) {
         const existing = await social.findByProvider("email", email);
         if (existing) {
-          throw new Error("该邮箱已被注册");
+          throw new UserExistsError("该邮箱已被注册");
         }
       }
 
@@ -174,7 +180,7 @@ export function createUserAdmin(
 
         const existing = await social.findByProvider("email", normalizedEmail);
         if (existing && existing.userId !== userId) {
-          throw new Error("该邮箱已被其他用户占用");
+          throw new SocialAccountConflictError("email", normalizedEmail);
         }
 
         const channels = await social.listByUser(userId);

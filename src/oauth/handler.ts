@@ -17,6 +17,7 @@ import {
 } from "@better-auth/core/oauth2";
 import type { DatabaseAdapter } from "../adapters/database";
 import { withTransaction } from "../adapters/database";
+import type { ChannelBindingData } from "../social/types";
 import type { OAuthCallbackResult, OAuthProviderConfig } from "./types";
 import type { AuditEvent } from "../core/audit";
 import {
@@ -28,7 +29,7 @@ import { createDbFacade } from "../models";
 
 // ---- 类型 ----
 
-/** SocialService 在 OAuth handler 中的最小依赖接口 */
+/** SocialService 在 OAuth handler 中的最小依赖接口（与 createSocialService 产物形状一致） */
 export interface SocialServiceForOAuth {
     findByProvider(
         provider: string,
@@ -38,14 +39,16 @@ export interface SocialServiceForOAuth {
         id: string;
         valid: boolean;
         allowPasswordUpdate: boolean;
+        allowVerification: boolean;
     } | null>;
     bindToUser(
         userId: string,
-        input: Record<string, unknown>,
+        input: { provider: string; identifier: string } & ChannelBindingData,
     ): Promise<{
         id: string;
         valid: boolean;
         allowPasswordUpdate: boolean;
+        allowVerification: boolean;
     }>;
 }
 
@@ -75,21 +78,16 @@ export interface OAuthCallbackOptions {
     codeVerifier?: string;
 }
 
-/** OAuth handler 实例类型 */
+/** OAuth handler 实例类型（回调参数为对象形式，库内强制校验 state） */
 export interface OAuthHandler {
     (
         provider: string,
         code: string,
         redirectUri: string,
-        stateOrOptions?: string | OAuthCallbackOptions,
-        /** @deprecated 仅旧位置参数签名使用 */
-        codeVerifier?: string,
+        options: OAuthCallbackOptions,
     ): Promise<OAuthCallbackResult>;
     initiateOAuth(provider: string, redirectUri: string): Promise<OAuthInitiateResult>;
 }
-
-/** 旧位置参数签名的弃用警告（仅一次） */
-let legacySignatureWarned = false;
 
 // ============================================================
 // OAuth 回调处理器工厂
@@ -178,8 +176,7 @@ export function createOAuthHandler(deps: {
         provider: string,
         code: string,
         redirectUri: string,
-        stateOrOptions?: string | OAuthCallbackOptions,
-        codeVerifierArg?: string,
+        options: OAuthCallbackOptions,
     ): Promise<OAuthCallbackResult> {
         const config = getProvider(provider);
         if (!config) {
@@ -188,37 +185,19 @@ export function createOAuthHandler(deps: {
             );
         }
 
-        // ---- 0. state 校验 ----
+        // ---- 0. state 校验（对象形式参数，库内强制比对，CSRF 防护） ----
 
-        let state: string | undefined;
-        let codeVerifier: string | undefined;
-
-        if (typeof stateOrOptions === "object" && stateOrOptions !== null) {
-            // 对象形式：库内强制校验 state（CSRF 防护）
-            const { state: incoming, expectedState, codeVerifier: cv } = stateOrOptions;
-            codeVerifier = cv;
-            state = incoming;
-            if (!incoming || !expectedState || incoming !== expectedState) {
-                await audit({
-                    action: "oauthLogin",
-                    metadata: { provider, rejected: "state_mismatch" },
-                });
-                throw new OAuthStateMismatchError(
-                    !incoming || !expectedState
-                        ? "OAuth state 缺失：回调必须携带 state 且服务端保存 expectedState"
-                        : "OAuth state 不匹配",
-                );
-            }
-        } else {
-            // 旧位置参数签名（已弃用，不校验 state）
-            state = stateOrOptions;
-            codeVerifier = codeVerifierArg;
-            if (!legacySignatureWarned) {
-                legacySignatureWarned = true;
-                console.warn(
-                    "[omni-auth] handleOAuthCallback 位置参数签名已弃用且不校验 state，请改用对象形式 { state, expectedState, codeVerifier }。",
-                );
-            }
+        const { state, expectedState, codeVerifier } = options;
+        if (!state || !expectedState || state !== expectedState) {
+            await audit({
+                action: "oauthLogin",
+                metadata: { provider, rejected: "state_mismatch" },
+            });
+            throw new OAuthStateMismatchError(
+                !state || !expectedState
+                    ? "OAuth state 缺失：回调必须携带 state 且服务端保存 expectedState"
+                    : "OAuth state 不匹配",
+            );
         }
 
         // ---- 1. 换取 token + 用户信息 ----
@@ -285,7 +264,7 @@ export function createOAuthHandler(deps: {
                 metadata: {
                     provider,
                     isNewUser: false,
-                    state: state ?? null,
+                    state,
                 },
             });
 
@@ -298,6 +277,7 @@ export function createOAuthHandler(deps: {
                     identifier: exchanged.openid,
                     valid: existingSocial.valid,
                     allowPasswordUpdate: existingSocial.allowPasswordUpdate,
+                    allowVerification: existingSocial.allowVerification,
                 },
             };
         }
@@ -314,6 +294,7 @@ export function createOAuthHandler(deps: {
             id: string;
             valid: boolean;
             allowPasswordUpdate: boolean;
+            allowVerification: boolean;
         };
 
         try {
@@ -361,7 +342,7 @@ export function createOAuthHandler(deps: {
             metadata: {
                 provider,
                 isNewUser: true,
-                state: state ?? null,
+                state,
             },
         });
 
@@ -374,6 +355,7 @@ export function createOAuthHandler(deps: {
                 identifier: exchanged.openid,
                 valid: bindResult.valid,
                 allowPasswordUpdate: bindResult.allowPasswordUpdate,
+                allowVerification: bindResult.allowVerification,
             },
         };
     }
