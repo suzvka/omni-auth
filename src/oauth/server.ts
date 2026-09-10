@@ -740,7 +740,10 @@ export function createOAuthServer(
         userId: clientId,
         productId: pid,
         scope: ["scim"],
-        claims: { type: "client_credentials" },
+        // productId 同步写入私有 claims：宿主（uc）的 SCIM 归属校验读 claims 而非
+        // introspect 顶层字段——鉴权中心去产品化后顶层 productId 绑定列移除，
+        // 归属语义由签发侧写入 claims、消费侧复核，鉴权中心不解释该字段。
+        claims: { type: "client_credentials", ...(pid ? { productId: pid } : {}) },
         ttl: 3600,
       });
       return { token: result.token, expiresAt: result.expiresAt };
