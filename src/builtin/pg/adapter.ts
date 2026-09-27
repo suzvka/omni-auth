@@ -335,7 +335,7 @@ function buildCrudAdapter(exec: QueryExecutor): DatabaseAdapter {
 
     // ---- 原子 upsert（ON CONFLICT ... DO UPDATE） ----
 
-    async upsert({ model, data, conflictOn, update }) {
+    async upsert({ model, data, conflictOn, update, where }) {
       const dataKeys = Object.keys(data);
       const dataValues = Object.values(data);
       const columns = dataKeys.map(quoteIdent).join(", ");
@@ -359,11 +359,21 @@ function buildCrudAdapter(exec: QueryExecutor): DatabaseAdapter {
         }
       }
 
+      // 条件更新（可选）：仅当既有行满足条件时才执行更新；
+      // 不满足则跳过更新且无 RETURNING 行 → 返回 null，调用方回退读取
+      let whereSql = "";
+      let whereValues: unknown[] = [];
+      if (where && where.length > 0) {
+        const built = buildWhereClause(where, paramIdx);
+        whereSql = ` WHERE ${built.sql}`;
+        whereValues = built.values;
+      }
+
       const sql =
         `INSERT INTO ${quoteIdent(model)} (${columns}) VALUES (${placeholders})` +
-        ` ON CONFLICT (${conflictCols}) DO UPDATE SET ${setParts.join(", ")}` +
+        ` ON CONFLICT (${conflictCols}) DO UPDATE SET ${setParts.join(", ")}${whereSql}` +
         ` RETURNING *`;
-      const { rows } = await query(sql, [...dataValues, ...extraValues]);
+      const { rows } = await query(sql, [...dataValues, ...extraValues, ...whereValues]);
       return rows[0] ?? null;
     },
   };

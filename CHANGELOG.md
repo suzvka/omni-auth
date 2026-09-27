@@ -1,8 +1,8 @@
 # Changelog
 ## 9.0.0
-> **接口复杂度专项收敛（评估驱动）**：credential 判别联合 + channelData 单一事实源 +
-> 弃用签名/死代码清仓 + 错误族补齐 + OAuth Server 公开面收窄。核心认证模型与 DB 不变。
-> 破坏性变更（major）。
+> **接口复杂度专项收敛 + 单令牌会话收束（评估驱动）**：credential 判别联合 + channelData 单一事实源 +
+> 弃用签名/死代码清仓 + 错误族补齐 + OAuth Server 公开面收窄 + 会话模型收束为
+> **单令牌共享**（同一用户至多一枚令牌，原子「复用或重铸」）。核心认证模型不变。破坏性变更（major）。
 >
 > 定位说明：本包以 npm `^x` 版本被消费，caret 天然挡住存量用户自动升级；升级即
 > 主动选择破坏面并按本指南迁移。
@@ -32,6 +32,20 @@
 >   （消息均不变）。按 instanceof/code 分支的错误处理需复检这三条路径。
 > - **返回类型化**：`users.createUser` 返回 `user: unknown` → `user: { id: string; name: string }`；
 >   `UserView.channels: unknown[]` → `SocialAccountDTO[]`。
+> - **会话模型收束为单令牌共享**：`sessions.createSession` 移除，改 `getOrCreateSession(userId)`
+>   （返回 `{ token, expiresAt }`）——同一用户至多一枚令牌：未过期即复用（多设备共享同一枚），
+>   已过期则原子重铸；并发吊销窗口抛 `SESSION_CONCURRENT_REVOKE`（宁拒绝登录，不向正被吊销
+>   的用户签发令牌）。原「每次登录新建会话」语义下线。
+> - **`sessions.invalidateSession` 删除**：单令牌模型下「吊销单枚令牌」不再存在独立语义——
+>   登出即吊销该用户全部会话（`destroyUserSessions`），仅退出本机则只清 Cookie。
+> - **新增 `sessions.getUserSession(userId)`**：纯读（无 / 过期 / 禁用 → null，不铸造、不写库），
+>   供宿主判断「当前是否已有会话」（如 OAuth 刷新续铸的最高门槛判定）。
+> - **`session` 表新增 `userId` 唯一约束**（索引 `session_userId_key`）：存量库升级前需清空
+>   `session` 表（存量会话下线重登），索引随部署期 schema 同步建立——表内同一 userId 存在多行时
+>   索引无法建立，`getOrCreateSession` 的 `ON CONFLICT` 将报错（42P10）。见下方迁移指南。
+> - **会话原子性依赖适配器 `upsert`（构造期 fail-fast）**：`createSessionService` 检测
+>   `DatabaseAdapter.upsert`——自定义适配器未实现时抛 `ADAPTER_UPSERT_UNSUPPORTED`
+>   （PgAdapter 已内置：`ON CONFLICT (userId) DO UPDATE … WHERE "expiresAt" < now`）。
 >
 > ### 非破坏性改进
 >
@@ -47,6 +61,9 @@
 >   `createRateLimitPresets`、registry 弃用兼容层残部。
 > - 公开方法参数名 `providerOpenid` → `identifier`（纯文档级，8.0.0 更名的收尾；
 >   审计 `metadata.providerOpenid` 键与 DB 列名保持不变）。
+> - **`DatabaseAdapter.upsert` 新增可选 `where`**：约束冲突时的更新可附条件——不满足则跳过更新、
+>   返回 null（调用方自行回退读取）。为单令牌会话的原子「复用或重铸」而消费；既有实现与调用
+>   不受影响。
 >
 > ### 迁移指南
 >
@@ -60,6 +77,26 @@
 > auth.handleOAuthCallback(provider, code, redirectUri, { state, expectedState, codeVerifier });
 > auth.authenticateChannel({ …, credential: { type: "smsCode", value, verified: true } }); // 编译期强制
 > const { user } = await auth.users.createUser(params);                    // { id, name }
+> ```
+>
+> ### 会话迁移（单令牌共享）——先清表建索引，后部署新代码
+>
+> ```sql
+> -- 1) 清空会话表（存量多设备会话全部下线，用户重新登录即可形成单令牌）
+> TRUNCATE "session";
+> -- 2) 唯一索引（部署期 schema 同步会自动建立；如需手工执行即此语句，须先完成去重/清空）
+> CREATE UNIQUE INDEX IF NOT EXISTS "session_userId_key" ON "session" ("userId");
+> ```
+>
+> ```ts
+> // before (8.x)
+> const { token } = await auth.sessions.createSession(userId);      // 每次登录新建
+> await auth.sessions.invalidateSession(token);                     // 单枚吊销
+>
+> // after (9.0.0)
+> const { token, expiresAt } = await auth.sessions.getOrCreateSession(userId); // 复用或原子重铸
+> await auth.sessions.destroyUserSessions(userId);                  // 登出 = 该用户全部会话下线
+> // 「仅退出本机」：只清会话 Cookie，不触服务端会话
 > ```
 
 ## 8.0.0

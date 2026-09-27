@@ -89,7 +89,7 @@ export async function POST(req: Request) {
       provider: "email", identifier: email, intent: "signIn",
       credential: { type: "password", value: password },
     });
-    const { token } = await auth.sessions.createSession(userId);
+    const { token } = await auth.sessions.getOrCreateSession(userId);
     const res = NextResponse.json({ ok: true });
     setSessionCookie(res, token); // HttpOnly / SameSite=Lax / 生产加 Secure
     return res;
@@ -121,7 +121,9 @@ import { auth, getSessionTokenFromCookies, clearSessionCookie } from "omni-auth/
 
 export async function POST() {
   const token = await getSessionTokenFromCookies();
-  if (token) await auth.sessions.invalidateSession(token);
+  // 单令牌共享模型：多端共用一枚令牌，登出即吊销该用户全部会话
+  const userId = token ? await auth.sessions.validateSession(token) : null;
+  if (userId) await auth.sessions.destroyUserSessions(userId);
   const res = NextResponse.json({ ok: true });
   clearSessionCookie(res);
   return res;
@@ -162,7 +164,7 @@ await auth.scim.list({ pagination: { startIndex: 1, count: 20 }, filter: null })
 | 能力 | 说明 |
 | --- | --- |
 | 凭证校验 | 密码 / 短信验证码 / OAuth code，全渠道统一入口，事务原子写入 |
-| 会话管理 | 创建 / 校验 / 吊销，账号禁用旧会话**立即失效** |
+| 会话管理 | 获取或创建（原子复用，单令牌共享）/ 校验 / 吊销（按用户级联），账号禁用旧会话**立即失效** |
 | 用户管理 | 增删改查、级联删除、改密即吊销全部会话 |
 | OAuth 2.0 Server | 客户端、授权码、PKCE、refresh token、scope 协商 |
 | 外部 OAuth 登录 | Google / GitHub / 微信 provider 工厂，`state` 库内强制比对 |

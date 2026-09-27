@@ -137,7 +137,7 @@ function createInMemoryDb(): DatabaseAdapter & {
             }
             return n;
         },
-        async upsert({ model, data, conflictOn, update }) {
+        async upsert({ model, data, conflictOn, update, where }) {
             const table = ensureModel(model);
             // 查找冲突记录
             let existingId: string | null = null;
@@ -149,7 +149,9 @@ function createInMemoryDb(): DatabaseAdapter & {
             }
             if (existingId) {
                 const r = table.get(existingId)!;
-                Object.assign(r, update, { updatedAt: new Date() });
+                // 冲突且条件不满足：跳过更新（对应 SQL 的无 RETURNING 行）
+                if (where && where.length > 0 && !matchWhere(r, where)) return null;
+                Object.assign(r, update);
                 return r;
             }
             const id = (data.id as string) ?? String(Math.random());
@@ -791,6 +793,28 @@ function createTxFailureDb(failFrom = 2) {
         },
         async deleteMany() {
             return 0;
+        },
+        async upsert({ model, data, conflictOn, update, where }) {
+            const t = table(model);
+            const existing = t.find((r) => conflictOn.every((f) => r[f] === data[f]));
+            if (existing) {
+                // 冲突且条件不满足：跳过更新（对应 SQL 的无 RETURNING 行）
+                if (where && where.length > 0) {
+                    const ok = where.every((w) => {
+                        const v = existing[w.field];
+                        if (w.operator === "lt") {
+                            return new Date(v as string).getTime() < new Date(w.value as string).getTime();
+                        }
+                        return v === w.value;
+                    });
+                    if (!ok) return null;
+                }
+                Object.assign(existing, update);
+                return existing;
+            }
+            const rec = { ...data, id: (data.id as string) ?? String(Math.random()) };
+            t.push(rec);
+            return rec;
         },
         async transaction(fn) {
             // 快照式事务：失败时恢复快照

@@ -71,15 +71,23 @@ export const socialAccount = table(
 // session 表（宿主会话，认证域私有）
 //
 // 列名沿用历史物理表（驼峰保真），由 schema-sync 同步。
+// userId 唯一：单令牌共享模型（同一用户至多一枚有效令牌），
+// getOrCreateSession 依赖该唯一索引做原子 upsert。
 // ----------------------------------------------------------
 
-export const session = table("session", {
-  id: text().primaryKey(),
-  userId: text().notNull(),
-  token: text().notNull(),
-  expiresAt: timestamptz().notNull(),
-  createdAt: timestamptz().notNull().default("NOW()"),
-});
+export const session = table(
+  "session",
+  {
+    id: text().primaryKey(),
+    userId: text().notNull(),
+    token: text().notNull(),
+    expiresAt: timestamptz().notNull(),
+    createdAt: timestamptz().notNull().default("NOW()"),
+  },
+  {
+    uniqueConstraints: [["userId"]],
+  }
+);
 
 // ----------------------------------------------------------
 // oauthToken 表（授权码 + refresh token 生命周期）

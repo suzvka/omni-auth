@@ -34,9 +34,9 @@ function createMockAdapter() {
 
 function createMockSessions() {
   const sessions = {
-    createSession: vi.fn(),
+    getOrCreateSession: vi.fn(),
+    getUserSession: vi.fn(),
     validateSession: vi.fn(),
-    invalidateSession: vi.fn(),
     destroyUserSessions: vi.fn(async () => {}),
     cleanupExpiredSessions: vi.fn(),
   } as unknown as SessionService;

@@ -95,11 +95,11 @@ export interface DatabaseAdapter {
     where: WhereCondition[];
   }): Promise<number>;
 
-  /** 插入或更新（原子 upsert，用于单 token 语义）
+  /** 插入或更新（原子 upsert，单令牌会话依赖：认证域 SessionService 消费）
    *
    * PostgreSQL 实现使用 ON CONFLICT ... DO UPDATE。
-   * 当前库内部暂无消费方（为单 token upsert 语义预留），
-   * 适配器可不实现；未来启用时以能力协商声明。 */
+   * 可选 where 约束冲突时的更新（作用于既有行）：不满足则跳过更新并
+   * 返回 null，调用方自行回退读取既有行（会话「有效即复用」语义）。 */
   upsert?(params: {
     model: string;
     data: Record<string, unknown>;
@@ -107,6 +107,8 @@ export interface DatabaseAdapter {
     conflictOn: string[];
     /** 冲突时更新的字段（不含 conflictOn 字段本身，由实现决定） */
     update: Record<string, unknown>;
+    /** 冲突时更新的附加条件（不满足则跳过更新，返回 null） */
+    where?: WhereCondition[];
   }): Promise<unknown>;
 
   /**
