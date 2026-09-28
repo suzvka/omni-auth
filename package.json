@@ -1,6 +1,6 @@
 {
   "name": "omni-auth",
-  "version": "9.0.0",
+  "version": "9.0.1",
   "description": "OmniAuth — omnichannel authentication utility library with first-class Next.js integration",
   "author": "Omni Auth Contributors",
   "license": "MIT",

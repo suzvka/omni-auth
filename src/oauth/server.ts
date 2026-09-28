@@ -661,34 +661,27 @@ export function createOAuthServer(
     },
 
     async consumeRefreshToken(token) {
-      const row = await db.findOne({
+      // 抢占式原子消费：单条条件更新（WHERE status='active'）——
+      // 并发提交同一枚令牌时至多一个请求能抢到行（其余返回 null 按 invalid_grant 拒绝），
+      // 彻底关闭「先读后写」两步之间的重放窗口；过期令牌同样被一次性作废。
+      const record = (await db.updateOne({
         model: "oauthToken",
         where: [
           { field: "token", value: token },
           { field: "type", value: "refresh_token" },
           { field: "status", value: "active" },
         ],
-      });
-      const record = row as OAuthTokenRow | null;
+        update: { status: "revoked" },
+      })) as OAuthTokenRow | null;
 
       if (!record) {
         throw invalidGrant("Refresh token not found or expired");
       }
 
-      // 过期检查
+      // 过期检查（抢占后置无效）
       if (new Date(record.expires_at).getTime() < Date.now()) {
         throw invalidGrant("Refresh token not found or expired");
       }
-
-      // 一次性：消费后置为 revoked
-      await db.updateOne({
-        model: "oauthToken",
-        where: [
-          { field: "token", value: token },
-          { field: "type", value: "refresh_token" },
-        ],
-        update: { status: "revoked" },
-      });
 
       return { userId: record.user_id, clientId: record.client_id };
     },

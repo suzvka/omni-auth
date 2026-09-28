@@ -308,33 +308,58 @@ describe("createOAuthServer — 授权码与 refresh token", () => {
     ).rejects.toThrow("Authorization code not found");
   });
 
-  it("consumeRefreshToken：一次性（消费后置 revoked）并返回 userId/clientId", async () => {
+  it("consumeRefreshToken：抢占成功（单条原子置 revoked）并返回 userId/clientId", async () => {
     const db = createMockAdapter();
     const server = createOAuthServer(db, createMockTokenAuthority());
 
-    (db.findOne as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (db.updateOne as ReturnType<typeof vi.fn>).mockResolvedValue({
       token: "rt-1",
       type: "refresh_token",
       client_id: "client-a",
       user_id: "u-1",
-      status: "active",
+      status: "revoked",
       expires_at: new Date(Date.now() + 86_400_000).toISOString(),
     });
 
     const result = await server.consumeRefreshToken("rt-1");
 
     expect(result).toEqual({ userId: "u-1", clientId: "client-a" });
-    const update = (db.updateOne as ReturnType<typeof vi.fn>).mock.calls[0][0].update;
-    expect(update.status).toBe("revoked");
+    const call = (db.updateOne as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // 抢占条件必须含 status=active（单条 UPDATE 的原子性来源）
+    expect(call.where).toEqual([
+      { field: "token", value: "rt-1" },
+      { field: "type", value: "refresh_token" },
+      { field: "status", value: "active" },
+    ]);
+    expect(call.update.status).toBe("revoked");
   });
 
-  it("consumeRefreshToken：已消费（revoked）再消费抛 invalid_grant", async () => {
+  it("consumeRefreshToken：抢占未中（不存在 / 已消费 / 被并发抢走）抛 invalid_grant，不再预读", async () => {
     const db = createMockAdapter();
     const server = createOAuthServer(db, createMockTokenAuthority());
 
-    (db.findOne as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    // 条件更新 0 行 → 返回 null：模拟已被消费（或被并发请求抢占）
+    (db.updateOne as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
     await expect(server.consumeRefreshToken("used-rt")).rejects.toThrow(OAuthError);
+    // 不依赖 findOne 预读：先读后写两步之间存在重放窗口
+    expect(db.findOne).not.toHaveBeenCalled();
+  });
+
+  it("consumeRefreshToken：抢占成功但已过期抛 invalid_grant（已一次性作废）", async () => {
+    const db = createMockAdapter();
+    const server = createOAuthServer(db, createMockTokenAuthority());
+
+    (db.updateOne as ReturnType<typeof vi.fn>).mockResolvedValue({
+      token: "rt-1",
+      type: "refresh_token",
+      client_id: "client-a",
+      user_id: "u-1",
+      status: "revoked",
+      expires_at: new Date(Date.now() - 1000).toISOString(),
+    });
+
+    await expect(server.consumeRefreshToken("rt-1")).rejects.toThrow(OAuthError);
   });
 });
 
