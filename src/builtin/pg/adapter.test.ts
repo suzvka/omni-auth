@@ -115,7 +115,8 @@ describe("PgAdapter", () => {
     });
 
     const [sql, values] = mockQuery.mock.calls[0] as [string, unknown[]];
-    expect(sql).toContain('WHERE "expiresAt" < $6');
+    // ON CONFLICT 子句列名须限定目标表（PG 裸列名歧义，见 adapter.ts buildWhereClause 注）
+    expect(sql).toContain('WHERE "session"."expiresAt" < $6');
     expect(values).toHaveLength(6);
     expect(values[5]).toBe(now);
     expect(result).toBeNull();

@@ -75,10 +75,18 @@ function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-/** 将 WhereCondition 转为参数化 SQL */
+/**
+ * 将 WhereCondition 转为参数化 SQL。
+ *
+ * tablePrefix 缺省（单表语句）不限定列名；ON CONFLICT DO UPDATE 的 WHERE
+ * 必须传入目标表限定（`"<model>".`）——PostgreSQL 对 DO UPDATE 子句中
+ * 裸列名报歧义（column reference "…" is ambiguous），限定后语义仍为
+ * 「既有行」判定（excluded 不被隐含引用）。
+ */
 function buildWhereClause(
   conditions: WhereCondition[],
-  startParamIndex: number
+  startParamIndex: number,
+  tablePrefix?: string
 ): { sql: string; values: unknown[] } {
   if (conditions.length === 0) return { sql: "", values: [] };
 
@@ -87,7 +95,8 @@ function buildWhereClause(
   let paramIdx = startParamIndex;
 
   for (const cond of conditions) {
-    const field = quoteIdent(cond.field);
+    const column = quoteIdent(cond.field);
+    const field = tablePrefix ? `${tablePrefix}.${column}` : column;
     const op = cond.operator ?? "eq";
 
     switch (op) {
@@ -364,7 +373,8 @@ function buildCrudAdapter(exec: QueryExecutor): DatabaseAdapter {
       let whereSql = "";
       let whereValues: unknown[] = [];
       if (where && where.length > 0) {
-        const built = buildWhereClause(where, paramIdx);
+        // 目标表限定：PG 对 DO UPDATE 的 WHERE 中裸列名报歧义（见 buildWhereClause 注）
+        const built = buildWhereClause(where, paramIdx, quoteIdent(model));
         whereSql = ` WHERE ${built.sql}`;
         whereValues = built.values;
       }

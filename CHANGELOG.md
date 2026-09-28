@@ -1,4 +1,19 @@
 # Changelog
+## 9.0.2
+> **PgAdapter.upsert 条件更新列歧义修复（阻断级）**：`ON CONFLICT … DO UPDATE … WHERE`
+> 子句中的列引用未限定目标表，PostgreSQL 将裸列名判为歧义
+> （`column reference "expiresAt" is ambiguous`，解析期即拒绝）——单令牌会话的
+> 「复用或重铸」upsert 在该路径下必然失败，导致宿主注册 / 登录的会话铸造全挂。
+>
+> ### 修复
+>
+> - `buildWhereClause` 增加可选 `tablePrefix`；`upsert` 的条件更新（where）
+>   生成时以 `"<model>".` 限定列名（语义不变：仍判定「既有行」，不隐含 excluded）。
+>   其余调用点（findOne / updateOne / deleteOne / deleteMany / count）为单表语句，
+>   不传前缀，行为不变。
+> - 已在真实 PostgreSQL（17）以条件更新三态验证：冲突+未过期→跳过更新（0 行）、
+>   冲突+已过期→原子重铸（1 行）、无冲突→插入（1 行）。
+
 ## 9.0.1
 > **发布事故纠正 + 刷新令牌消费原子性强化**：npm 上已发布的 9.0.0 实际构建与 9.0.0 条目所述不符
 > （误为一份未入档的实现：会话 / 刷新令牌全委托鉴权中心），该版本已标记 deprecated；
