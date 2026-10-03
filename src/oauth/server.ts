@@ -266,13 +266,14 @@ export interface OAuthServerService {
     userId: string;
     redirectUri: string;
     codeChallenge: string;
+    scope?: string;
   }): Promise<string>;
   consumeCode(params: {
     code: string;
     codeVerifier: string;
     clientId: string;
     redirectUri: string;
-  }): Promise<string>;
+  }): Promise<{ userId: string; scope: string | null }>;
 
   // ---- Refresh Token（本地管理） ----
   issueRefreshToken(clientId: string, userId: string): Promise<string>;
@@ -576,6 +577,7 @@ export function createOAuthServer(
           user_id: params.userId,
           code_challenge: params.codeChallenge,
           redirect_uri: params.redirectUri,
+          scope: params.scope ?? DEFAULT_SCOPE,
           status: "active",
           expires_at: expiresAt,
           created_at: new Date(),
@@ -633,8 +635,7 @@ export function createOAuthServer(
           { field: "type", value: "authorization_code" },
         ],
       });
-
-      return record.user_id;
+       return { userId: record.user_id, scope: record.scope };
     },
 
     // ---- Refresh Token ----

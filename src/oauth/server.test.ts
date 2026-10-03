@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createOAuthServer, OAuthError, verifyPKCE, generateCodeChallenge } from "./server";
+import { createOAuthServer, OAuthError, verifyPKCE, generateCodeChallenge, DEFAULT_SCOPE } from "./server";
 import type { DatabaseAdapter } from "../adapters/database";
 import type { TokenAuthorityClient } from "./server";
 
@@ -229,9 +229,11 @@ describe("createOAuthServer — 授权码与 refresh token", () => {
     expect(data.type).toBe("authorization_code");
     expect(data.client_id).toBe("client-a");
     expect(data.code_challenge).toBe("challenge-1");
+    // 未显式传 scope 时回落 DEFAULT_SCOPE
+    expect(data.scope).toBe(DEFAULT_SCOPE);
   });
 
-  it("consumeCode：PKCE 校验通过后消费即删（一次性）并返回 userId", async () => {
+  it("consumeCode：PKCE 校验通过后消费即删（一次性）并返回 userId 与 scope", async () => {
     const db = createMockAdapter();
     const server = createOAuthServer(db, createMockTokenAuthority());
     const verifier = "verifier-abc";
@@ -251,18 +253,19 @@ describe("createOAuthServer — 授权码与 refresh token", () => {
       user_id: "u-1",
       redirect_uri: "https://app.example.com/callback",
       code_challenge: challenge,
+      scope: DEFAULT_SCOPE,
       status: "active",
       expires_at: new Date(Date.now() + 60_000).toISOString(),
     });
 
-    const userId = await server.consumeCode({
+    const consumed = await server.consumeCode({
       code,
       codeVerifier: verifier,
       clientId: "client-a",
       redirectUri: "https://app.example.com/callback",
     });
 
-    expect(userId).toBe("u-1");
+    expect(consumed).toEqual({ userId: "u-1", scope: DEFAULT_SCOPE });
     // 消费即删除（oauth_token 记录不残留）
     expect(db.deleteOne).toHaveBeenCalledWith(
       expect.objectContaining({ model: "oauthToken" })

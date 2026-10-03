@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { newDb, type IMemoryDb } from "pg-mem";
 import { syncSchema } from "../schema-sync";
 import { PgAdapter, type PgPoolLike } from "../builtin/pg/adapter";
-import { createOAuthServer, generateCodeChallenge, type TokenAuthorityClient } from "./server";
+import { createOAuthServer, generateCodeChallenge, DEFAULT_SCOPE, type TokenAuthorityClient } from "./server";
 
 // ============================================================
 // OAuth Server 与 autoSync 建表协同的集成冒烟（pg-mem 内存库）
@@ -99,14 +99,14 @@ describe("OAuth Server（autoSync 建表 + pg 适配器集成）", () => {
     });
     expect(code).toBeTruthy();
 
-    // 消费成功（PKCE / client_id / redirect_uri 全部匹配）
-    const userId = await server.consumeCode({
+    // 消费成功（PKCE / client_id / redirect_uri 全部匹配；scope 缺省回落 DEFAULT_SCOPE）
+    const consumed = await server.consumeCode({
       code,
       codeVerifier: verifier,
       clientId: "client-a",
       redirectUri: "https://app.example.com/cb",
     });
-    expect(userId).toBe("user-1");
+    expect(consumed).toEqual({ userId: "user-1", scope: DEFAULT_SCOPE });
 
     // 消费即删除：二次消费必须失败（记录已不存在）
     await expect(
