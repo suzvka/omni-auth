@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=medium; owner=identity; expires=2027-03-31 */
 import { describe, it, expect } from "vitest";
 import { generateDDL, assertConsistentTableNames } from "./codegen-ddl";
 import { generatePrismaModels, generatePrismaSchema } from "./codegen-prisma";

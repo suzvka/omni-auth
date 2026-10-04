@@ -9,6 +9,7 @@
 - **认证逻辑单一来源**：认证领域逻辑只在 `src/` 内实现；宿主只消费库公开 API 或 HTTP 接口
   （`/api/auth/*`），不存在第二套认证实现。
 - 新增功能落在 `src/`（含 vitest 单测）；发布走 CI（`publish.yml`）或根目录 `npm publish`。
+- 测试策略遵循集群 `docs/testing-strategy.md`（非 TDD：业务行为定稿后补最小回归集）；用例必须带 `test-meta`（tier/risk/owner/expires，owner=identity）；真 PG 集成（`OMNI_AUTH_TEST_PG_URL`）按 nightly profile 运行并报告 skipped 数量。
 - 历史沿革：7.0.0 前曾是 monorepo（`packages/omni-auth` + 演示宿主 `apps/demo`），7.0.0 起
   扁平化为单包并移除 demo——demo 已在真实系统验证库能力，不再随仓维护。
 

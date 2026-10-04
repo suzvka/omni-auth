@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=low; owner=identity; expires=2027-03-31 */
 import { describe, it, expect, expectTypeOf } from "vitest";
 import {
   table,

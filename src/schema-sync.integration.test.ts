@@ -1,3 +1,4 @@
+/** test-meta: tier=integration; risk=medium; owner=identity; expires=2027-03-31 */
 import { describe, it, expect, beforeEach } from "vitest";
 import { newDb, type IMemoryDb } from "pg-mem";
 import { syncSchema } from "./schema-sync";

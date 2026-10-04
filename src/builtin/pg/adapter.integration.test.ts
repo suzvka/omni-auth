@@ -1,3 +1,4 @@
+/** test-meta: tier=integration; risk=medium; owner=identity; expires=2027-03-31 */
 // ============================================================
 // PgAdapter 真实数据库集成测试
 //

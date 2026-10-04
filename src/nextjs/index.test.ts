@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=low; owner=identity; expires=2027-03-31 */
 import { describe, it, expect, vi } from "vitest";
 
 // createQuickAuth 顶层 import next/headers，测试环境 mock 掉

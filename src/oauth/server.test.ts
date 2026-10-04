@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=high; owner=identity; expires=2027-03-31 */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createOAuthServer, OAuthError, verifyPKCE, generateCodeChallenge, DEFAULT_SCOPE } from "./server";
 import type { DatabaseAdapter } from "../adapters/database";

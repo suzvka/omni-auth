@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=low; owner=identity; expires=2027-03-31 */
 import { describe, it, expect } from "vitest";
 import { extractAuditContext } from "./audit";
 import { createRequestContext } from "../adapters/request";

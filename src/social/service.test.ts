@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=medium; owner=identity; expires=2027-03-31 */
 import { describe, it, expect, beforeEach } from "vitest";
 import { createSocialService } from "./service";
 import type { TokenRefresher } from "./token";

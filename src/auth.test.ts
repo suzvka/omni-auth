@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=high; owner=identity; expires=2027-03-31 */
 import { describe, it, expect, vi } from "vitest";
 
 // mock next/headers（测试环境兼容）

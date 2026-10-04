@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=high; owner=identity; expires=2027-03-31 */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createSessionService, SESSION_TTL_MS } from "./session";
 import type { DatabaseAdapter } from "../adapters/database";

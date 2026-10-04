@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=high; owner=identity; expires=2027-03-31 */
 import { describe, it, expect, beforeEach } from "vitest";
 import { hashPassword, verifyPassword } from "@better-auth/utils/password";
 import { createPasswordReset } from "./password";

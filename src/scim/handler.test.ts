@@ -1,3 +1,4 @@
+/** test-meta: tier=fast; risk=medium; owner=identity; expires=2027-03-31 */
 // ============================================================
 // SCIM User handler 单测（mock DatabaseAdapter + 依赖服务）
 //
