@@ -74,24 +74,25 @@ describe("createScimUserHandler.create", () => {
   it("displayName 优先：仅写 name 列，不产生任何渠道绑定，userName 恒为 id", async () => {
     const db = createMockDb();
     const { handler, users } = createHandler(db);
-    mockUserRow(db, { name: "张三" });
+    const displayName = "张三";
+    mockUserRow(db, { name: displayName });
 
     const result = await handler.create({
       schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
       userName: "zhangsan",
-      displayName: "张三",
+      displayName,
       active: true,
     });
 
     const createArgs = (users.createUser as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(createArgs).toEqual(
-      expect.objectContaining({ name: "张三", source: "scim" })
+      expect.objectContaining({ name: displayName, source: "scim" })
     );
     // 无 email 渠道概念：不向 createUser 传 email
     expect(createArgs).not.toHaveProperty("email");
 
     expect(result.userName).toBe("u-1");
-    expect(result.displayName).toBe("张三");
+    expect(result.displayName).toBe(displayName);
     // 响应为纯目录条目：无 emails 等渠道投影字段
     expect(result).not.toHaveProperty("emails");
   });
@@ -159,12 +160,13 @@ describe("createScimUserHandler 投影与查询", () => {
   it("get：userName 恒为服务端 id（与名字属性无关）", async () => {
     const db = createMockDb();
     const { handler } = createHandler(db);
-    mockUserRow(db, { name: "张三" });
+    const displayName = "张三";
+    mockUserRow(db, { name: displayName });
 
     const result = await handler.get("u-1");
     expect(result.id).toBe("u-1");
     expect(result.userName).toBe("u-1");
-    expect(result.displayName).toBe("张三");
+    expect(result.displayName).toBe(displayName);
     expect(result).not.toHaveProperty("emails");
   });
 

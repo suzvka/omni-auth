@@ -599,16 +599,17 @@ describe("authenticateChannel 非密码凭证契约", () => {
         const memDb = createInMemoryDb();
         const auth = createTestAuth(memDb);
 
+        const profileName = "手机用户";
         const result = await auth.authenticateChannel({
             provider: "phone",
             identifier: "13800000001",
             intent: "upsert",
             credential: { type: "smsCode", value: "123456", verified: true },
-            profile: { name: "手机用户" },
+            profile: { name: profileName },
         });
 
         expect(result.isNewUser).toBe(true);
-        expect(result.user.name).toBe("手机用户");
+        expect(result.user.name).toBe(profileName);
         expect(result.channel.provider).toBe("phone");
     });
 });

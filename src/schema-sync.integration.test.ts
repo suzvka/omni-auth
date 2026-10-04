@@ -54,8 +54,10 @@ describe("syncSchema（pg-mem 集成）", () => {
     );
 
     // 旧库已有历史数据（验证同步不破坏数据）
+    const legacyUserId = "u-1";
+    const legacyName = "老用户";
     await ddl.query(
-      `INSERT INTO "user" ("id", "name", "createdAt", "updatedAt") VALUES ('u-1', '老用户', NOW(), NOW())`
+      `INSERT INTO "user" ("id", "name", "createdAt", "updatedAt") VALUES ('${legacyUserId}', '${legacyName}', NOW(), NOW())`
     );
 
     // 第一次同步：补齐全部表 + user 元数据列
@@ -88,7 +90,7 @@ describe("syncSchema（pg-mem 集成）", () => {
 
     // 历史数据未被破坏
     const users = await ddl.query(`SELECT id, name FROM "user"`);
-    expect(users.rows).toEqual([{ id: "u-1", name: "老用户" }]);
+    expect(users.rows).toEqual([{ id: legacyUserId, name: legacyName }]);
 
     // 第二次同步：幂等，0 新增列
     const again = await syncSchema(pool);

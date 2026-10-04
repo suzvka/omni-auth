@@ -443,7 +443,8 @@ describe("createOAuthHandler — 新用户注册", () => {
             model: "user",
             where: [],
         }) as Record<string, unknown>[];
-        expect(users[0].name).toBe("github_用户");
+        // 平台不返回 name → 默认名以 provider 标识兜底（后缀展示文案不锁）
+        expect(String(users[0].name)).toContain("github");
     });
 
     it("exchangeCode 抛出错误时应传播", async () => {

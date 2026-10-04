@@ -65,8 +65,9 @@ describe("OAuth Server（autoSync 建表 + pg 适配器集成）", () => {
     const server = createOAuthServer(adapter, createMockTokenAuthority());
 
     // 签发客户端凭证（全新库真实写操作）
+    const clientName = "集成测试应用";
     const client = await server.createOAuthClient({
-      clientName: "集成测试应用",
+      clientName,
       redirectUris: ["https://app.example.com/cb"],
     });
 
@@ -78,7 +79,7 @@ describe("OAuth Server（autoSync 建表 + pg 适配器集成）", () => {
     // 数据可经语义 API 回查（确认真实落库而非仅返回形状）
     const found = await server.getClientById(client.client_id);
     expect(found?.id).toBe(client.id);
-    expect(found?.client_name).toBe("集成测试应用");
+    expect(found?.client_name).toBe(clientName);
     // redirect_uris 经 jsonb 列往返后仍为 JS 数组
     expect(found?.redirect_uris).toEqual(["https://app.example.com/cb"]);
   });

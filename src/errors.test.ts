@@ -9,9 +9,10 @@ import {
 
 describe("UnauthorizedError", () => {
   it("应包含 code 和 message 属性", () => {
-    const err = new UnauthorizedError("FORBIDDEN", "无权限访问");
+    const message = "无权限访问";
+    const err = new UnauthorizedError("FORBIDDEN", message);
     expect(err.code).toBe("FORBIDDEN");
-    expect(err.message).toBe("无权限访问");
+    expect(err.message).toBe(message);
     expect(err.name).toBe("UnauthorizedError");
   });
 
@@ -30,8 +31,9 @@ describe("InvalidPasswordError", () => {
   });
 
   it("应支持自定义消息", () => {
-    const err = new InvalidPasswordError("密码不正确");
-    expect(err.message).toBe("密码不正确");
+    const message = "密码不正确";
+    const err = new InvalidPasswordError(message);
+    expect(err.message).toBe(message);
   });
 
   it("应为 Error 子类", () => {
@@ -43,10 +45,13 @@ describe("InvalidPasswordError", () => {
 
 describe("SocialAccountConflictError", () => {
   it("应包含 provider 和 providerOpenid", () => {
-    const err = new SocialAccountConflictError("wechat", "openid_abc");
-    expect(err.message).toContain("wechat");
-    expect(err.message).toContain("openid_abc");
-    expect(err.message).toContain("已被其他用户绑定");
+    const provider = "wechat";
+    const identifier = "openid_abc";
+    const err = new SocialAccountConflictError(provider, identifier);
+    expect(err.code).toBe("SOCIAL_ACCOUNT_CONFLICT");
+    // message 透出定位标识（模板文案不锁）
+    expect(err.message).toContain(provider);
+    expect(err.message).toContain(identifier);
     expect(err.name).toBe("SocialAccountConflictError");
   });
 
@@ -59,15 +64,17 @@ describe("SocialAccountConflictError", () => {
 
 describe("WeakPasswordError", () => {
   it("应包含机器可读 code WEAK_PASSWORD", () => {
-    const err = new WeakPasswordError("密码长度不能少于 8 位");
+    const message = "密码长度不能少于 8 位";
+    const err = new WeakPasswordError(message);
     expect(err.code).toBe("WEAK_PASSWORD");
-    expect(err.message).toBe("密码长度不能少于 8 位");
+    expect(err.message).toBe(message);
     expect(err.name).toBe("WeakPasswordError");
   });
 
   it("应包含默认消息且为 Error 子类", () => {
     const err = new WeakPasswordError();
-    expect(err.message).toBe("密码不满足强度要求");
+    // 默认消息存在且非空（展示文案不锁，code 才是程序化消费面）
+    expect(err.message.length).toBeGreaterThan(0);
     expect(err).toBeInstanceOf(Error);
     expect(err).toBeInstanceOf(WeakPasswordError);
   });

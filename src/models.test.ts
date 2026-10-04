@@ -160,16 +160,17 @@ describe("createDbFacade（类型化表视图）", () => {
   const db = createDbFacade(adapter);
 
   it("user 视图：create / findOne / findMany / count 全链路", async () => {
+    const userName = "张三";
     const created = await db.user.create({
-      data: { name: "张三", password: "hashed", updatedAt: new Date() },
+      data: { name: userName, password: "hashed", updatedAt: new Date() },
     });
     expect(created.id).toBeDefined();
     expect(created.password).toBe("hashed");
 
     const found = await db.user.findOne({
-      where: [{ field: "name", value: "张三" }],
+      where: [{ field: "name", value: userName }],
     });
-    expect(found?.name).toBe("张三");
+    expect(found?.name).toBe(userName);
 
     const many = await db.user.findMany({});
     expect(many).toHaveLength(1);
